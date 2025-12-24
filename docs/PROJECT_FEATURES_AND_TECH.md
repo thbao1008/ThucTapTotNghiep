@@ -1,7 +1,4 @@
-## 3. Hướng dẫn chạy hệ thống bằng Docker
 
-### Yêu cầu:
-- Đã cài đặt Docker và Docker Compose
 
 ### Các bước cơ bản:
 1. **Clone source code về máy**
