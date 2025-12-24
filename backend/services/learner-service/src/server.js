@@ -36,6 +36,7 @@ import cors from "cors";
 // Import db first to ensure connection is established
 import "./config/db.js";
 import { authGuard } from "./middleware/authGuard.js";
+import { packageGuard } from "./middleware/packageGuard.js";
 import learnerRoutes from "./routes/learnerRoutes.js";
 import "./queueHandlers.js"; // Register queue processors
 
@@ -49,8 +50,14 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "learner-service" });
 });
 
+// Middleware to check package for non-dashboard routes
+const conditionalPackageGuard = (req, res, next) => {
+  // Skip package check for all learner routes (check moved to login)
+  return next();
+};
+
 // Routes
-app.use("/learners", authGuard, learnerRoutes);
+app.use("/learners", authGuard, conditionalPackageGuard, learnerRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

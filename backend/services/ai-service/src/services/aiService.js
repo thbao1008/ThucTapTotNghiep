@@ -46,115 +46,13 @@ async function getFetch() {
 }
 
 /**
- * callAiESP - Call AiESP Python script for AI responses
+ * callAiESP - Call OpenRouter for AI responses (AiESP is for learning only)
  * messages: [{role, content}, ...]
  * opts: {task_type, temperature, max_tokens}
  */
 export async function callAiESP(messages, opts = {}) {
-  const { spawn } = await import("child_process");
-  const path = await import("path");
-  const { fileURLToPath } = await import("url");
-  
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  const backendDir = path.resolve(__dirname, "..", "..", "..", "..");
-  const assistantPath = path.resolve(backendDir, "ai_models", "assistantAI.py");
-  
-  // Determine task type from system prompt or default
-  const systemMessage = messages.find(m => m.role === "system");
-  let taskType = opts.task_type || "conversation_ai";
-  
-  // Auto-detect task type from system prompt
-  if (systemMessage?.content) {
-    if (systemMessage.content.includes("speech") || systemMessage.content.includes("pronunciation")) {
-      taskType = "speaking_practice";
-    } else if (systemMessage.content.includes("alignment") || systemMessage.content.includes("challenge")) {
-      taskType = "speaking_practice";
-    }
-  }
-  
-  return new Promise((resolve, reject) => {
-    try {
-      // Convert messages to input format for AiESP
-      const lastMessage = messages[messages.length - 1];
-      const userMessage = lastMessage?.content || "";
-      const history = messages.slice(0, -1).map(m => ({
-        role: m.role,
-        content: m.content
-      }));
-      
-      const inputData = {
-        user_message: userMessage,
-        history: history,
-        system_prompt: systemMessage?.content || "",
-        full_messages: messages // Pass full messages for complex tasks
-      };
-      
-      const pythonProcess = spawn('python', [assistantPath, 'conversation', taskType], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: 'utf-8'
-        }
-      });
-      
-      let stdout = '';
-      let stderr = '';
-      
-      pythonProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-      
-      pythonProcess.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-      
-      pythonProcess.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(`AiESP error: ${stderr || 'Unknown error'}`));
-          return;
-        }
-        
-        try {
-          // AiESP returns JSON string or plain text
-          const response = stdout.trim();
-          
-          // Try to parse as JSON first (for structured responses)
-          let parsedResponse;
-          try {
-            parsedResponse = JSON.parse(response);
-          } catch {
-            // If not JSON, use as plain text
-            parsedResponse = response;
-          }
-          
-          // Format as OpenRouter-like response
-          resolve({
-            choices: [{
-              message: {
-                role: "assistant",
-                content: typeof parsedResponse === 'string' ? parsedResponse : JSON.stringify(parsedResponse)
-              }
-            }]
-          });
-        } catch (err) {
-          reject(new Error(`AiESP parse error: ${err.message}`));
-        }
-      });
-      
-      pythonProcess.on('error', (err) => {
-        reject(new Error(`AiESP spawn error: ${err.message}`));
-      });
-      
-      // Send input data
-      pythonProcess.stdin.write(JSON.stringify(inputData));
-      pythonProcess.stdin.end();
-      
-    } catch (err) {
-      reject(err);
-    }
-  });
+  // Always use OpenRouter for responses, AiESP is for learning only
+  return await callOpenRouter(messages, { ...opts, use_aiesp: false });
 }
 
 /**
@@ -257,7 +155,32 @@ export async function callOpenRouter(messages, opts = {}) {
     throw err;
   }
 
-  return res.json();
+  const response = await res.json();
+
+  // Auto-learn from OpenRouter responses for AiESP training
+  try {
+    // Determine task type from system message or default to conversation_ai
+    let taskType = opts.task_type || 'conversation_ai';
+    const systemMessage = messages.find(m => m.role === "system");
+    if (systemMessage?.content) {
+      if (systemMessage.content.includes("speech") || systemMessage.content.includes("pronunciation")) {
+        taskType = "speaking_practice";
+      } else if (systemMessage.content.includes("translation") || systemMessage.content.includes("check")) {
+        taskType = "translation_check";
+      } else if (systemMessage.content.includes("game") || systemMessage.content.includes("conversation")) {
+        taskType = "game_conversation";
+      }
+    }
+
+    // Learn asynchronously (don't block response)
+    learnFromOpenRouter(messages, response, taskType).catch(err => {
+      console.warn('⚠️ Failed to learn from OpenRouter response:', err.message);
+    });
+  } catch (err) {
+    console.warn('⚠️ Error in auto-learning:', err.message);
+  }
+
+  return response;
 }
 
 /**
@@ -313,14 +236,126 @@ export function compareTranscript(transcript, sampleText, wordSegments = []) {
   });
 }
 
-/**
- * safeParseJSON - helper to parse AI responses
- */
 export function safeParseJSON(text) {
   try {
     return JSON.parse(text);
   } catch (err) {
     return null;
+  }
+}
+
+/**
+ * learnFromOpenRouter - Save OpenRouter response for AiESP training
+ * messages: input messages
+ * response: OpenRouter response object
+ * taskType: task type for training
+ */
+export async function learnFromOpenRouter(messages, response, taskType = 'conversation_ai') {
+  try {
+    const pool = await import("../config/db.js");
+
+    // Extract user message and AI response
+    const userMessage = messages[messages.length - 1]?.content || '';
+    const aiResponse = response.choices?.[0]?.message?.content || '';
+
+    if (!userMessage || !aiResponse) {
+      console.warn('⚠️ Skipping training data: missing user message or AI response');
+      return;
+    }
+
+    // Save to training table
+    await pool.default.query(`
+      INSERT INTO assistant_ai_training (task_type, input_data, expected_output, created_at)
+      VALUES ($1, $2, $3, NOW())
+      ON CONFLICT (task_type, md5(input_data::text)) DO NOTHING
+    `, [taskType, JSON.stringify({ message: userMessage }), JSON.stringify({ response: aiResponse })]);
+
+    console.log(`✅ Saved training data for ${taskType}: ${userMessage.substring(0, 50)}...`);
+
+    // Auto-trigger training if we have enough samples
+    const countResult = await pool.default.query(`
+      SELECT COUNT(*) as count
+      FROM assistant_ai_training
+      WHERE task_type = $1
+      AND created_at > (
+        SELECT COALESCE(MAX(trained_at), '1970-01-01')
+        FROM assistant_ai_models
+        WHERE task_type = $1
+      )
+    `, [taskType]);
+
+    const newSamples = parseInt(countResult.rows[0].count);
+
+    // Train if we have 10+ new samples
+    if (newSamples >= 10) {
+      console.log(`🔄 Auto-training ${taskType} with ${newSamples} new samples...`);
+      await trainAiESP(taskType);
+    }
+
+  } catch (err) {
+    console.error('❌ Error saving training data:', err);
+  }
+}
+
+/**
+ * trainAiESP - Train AiESP with collected data
+ * taskType: task type to train
+ */
+export async function trainAiESP(taskType = 'conversation_ai') {
+  try {
+    const { spawn } = await import("child_process");
+    const path = await import("path");
+    const { fileURLToPath } = await import("url");
+
+    const __filename = fileURLToPath(import.meta.url);
+    const __dirname = path.dirname(__filename);
+    const backendDir = path.resolve(__dirname, "..", "..", "..", "..");
+    const assistantPath = path.resolve(backendDir, "ai_models", "assistantAI.py");
+
+    return new Promise((resolve, reject) => {
+      const pythonProcess = spawn('python', [assistantPath, 'train', taskType], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        shell: true,
+        env: {
+          ...process.env,
+          PYTHONIOENCODING: 'utf-8'
+        }
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      pythonProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      pythonProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      pythonProcess.on('close', (code) => {
+        if (code !== 0) {
+          reject(new Error(`AiESP training error: ${stderr || 'Unknown error'}`));
+          return;
+        }
+
+        try {
+          const result = JSON.parse(stdout.trim());
+          console.log(`✅ AiESP training completed for ${taskType}:`, result);
+          resolve(result);
+        } catch (err) {
+          reject(new Error(`AiESP training parse error: ${err.message}`));
+        }
+      });
+
+      pythonProcess.on('error', (err) => {
+        reject(new Error(`AiESP training spawn error: ${err.message}`));
+      });
+    });
+
+  } catch (err) {
+    console.error('❌ Error training AiESP:', err);
+    throw err;
   }
 }
 

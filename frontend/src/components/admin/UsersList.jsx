@@ -295,8 +295,8 @@ export default function UsersList() {
                     <td>
                       {user.status === "banned"
                         ? "Tạm ngưng"
-                        : user.package_status
-                          ? (user.package_status === "active" ? "Còn hạn" : "Hết hạn")
+                        : user.expiry_date
+                          ? (new Date(user.expiry_date) > new Date() ? "Còn hạn" : "Hết hạn")
                           : "-"}
                     </td>
                   )}

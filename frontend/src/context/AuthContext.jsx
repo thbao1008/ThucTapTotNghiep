@@ -12,6 +12,9 @@ export function AuthProvider({ children }) {
   const [loading, setLoading] = useState(false);
   const [showSessionExpiredModal, setShowSessionExpiredModal] = useState(false);
   const sessionCheckIntervalRef = useRef(null);
+  const isCheckingSessionRef = useRef(false);
+  const hasInitializedRef = useRef(false);
+  const showSessionExpiredModalRef = useRef(false);
 
   // Hàm logout và redirect
   const handleLogoutAndRedirect = useCallback(() => {
@@ -32,10 +35,11 @@ export function AuthProvider({ children }) {
   // Kiểm tra session có hợp lệ không
   const checkSession = useCallback(async () => {
     const stored = getAuth();
-    if (!stored?.token) {
+    if (!stored?.token || isCheckingSessionRef.current) {
       return;
     }
 
+    isCheckingSessionRef.current = true;
     try {
       const { default: api } = await import("../api");
       // Gọi API nhẹ để kiểm tra session (sử dụng endpoint /users/me)
@@ -47,13 +51,20 @@ export function AuthProvider({ children }) {
         // Hiển thị modal thông báo
         setShowSessionExpiredModal(true);
       }
+    } finally {
+      isCheckingSessionRef.current = false;
     }
   }, []);
+
+  // Update ref when showSessionExpiredModal changes
+  useEffect(() => {
+    showSessionExpiredModalRef.current = showSessionExpiredModal;
+  }, [showSessionExpiredModal]);
 
   // Lắng nghe event session-expired từ API interceptor
   useEffect(() => {
     const handleSessionExpired = () => {
-      if (!showSessionExpiredModal) {
+      if (!showSessionExpiredModalRef.current) {
         setShowSessionExpiredModal(true);
       }
     };
@@ -62,19 +73,28 @@ export function AuthProvider({ children }) {
     return () => {
       window.removeEventListener('session-expired', handleSessionExpired);
     };
-  }, [showSessionExpiredModal]);
+  }, []);
 
   // Khôi phục trạng thái đăng nhập khi reload và kiểm tra session
   useEffect(() => {
-    const stored = getAuth();
-    if (stored) {
-      setToken(stored.token);
-      setUser(stored.user);
-      // Kiểm tra session ngay khi load
-      checkSession();
-      // Kiểm tra session định kỳ mỗi 2 giây để phát hiện ngay lập tức
-      sessionCheckIntervalRef.current = setInterval(checkSession, 2000);
-    }
+    if (hasInitializedRef.current) return;
+    
+    const initializeAuth = async () => {
+      hasInitializedRef.current = true;
+      const stored = getAuth();
+      if (stored) {
+        setToken(stored.token);
+        setUser(stored.user);
+        
+        // Kiểm tra session
+        await checkSession();
+        
+        // Kiểm tra session định kỳ mỗi 5 phút (thay vì 30 giây)
+        sessionCheckIntervalRef.current = setInterval(checkSession, 300000); // 5 minutes
+      }
+    };
+
+    initializeAuth();
 
     // Cleanup interval khi unmount
     return () => {
@@ -82,14 +102,21 @@ export function AuthProvider({ children }) {
         clearInterval(sessionCheckIntervalRef.current);
         sessionCheckIntervalRef.current = null;
       }
+      // Reset refs
+      isCheckingSessionRef.current = false;
+      hasInitializedRef.current = false;
     };
   }, [checkSession]);
 
   // Kiểm tra session ngay khi window/tab được focus hoặc có user interaction
   useEffect(() => {
+    let lastSessionCheck = 0;
+    
     const handleFocus = () => {
       const stored = getAuth();
-      if (stored?.token && !showSessionExpiredModal) {
+      const now = Date.now();
+      if (stored?.token && !showSessionExpiredModal && now - lastSessionCheck > 5000) {
+        lastSessionCheck = now;
         checkSession();
       }
     };
@@ -97,39 +124,34 @@ export function AuthProvider({ children }) {
     const handleVisibilityChange = () => {
       if (!document.hidden) {
         const stored = getAuth();
-        if (stored?.token && !showSessionExpiredModal) {
+        const now = Date.now();
+        if (stored?.token && !showSessionExpiredModal && now - lastSessionCheck > 5000) {
+          lastSessionCheck = now;
           checkSession();
         }
       }
     };
 
-    // Kiểm tra khi có user interaction (click, keypress) để phát hiện ngay
+    // Kiểm tra khi có user interaction (click, keypress) - chỉ mỗi 60 giây
     const handleUserInteraction = () => {
       const stored = getAuth();
-      if (stored?.token && !showSessionExpiredModal) {
+      const now = Date.now();
+      if (stored?.token && !showSessionExpiredModal && now - lastSessionCheck > 60000) {
+        lastSessionCheck = now;
         checkSession();
       }
     };
 
     window.addEventListener('focus', handleFocus);
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    // Throttle để tránh gọi quá nhiều
-    let lastCheck = 0;
-    const throttledCheck = () => {
-      const now = Date.now();
-      if (now - lastCheck > 1000) { // Chỉ check mỗi 1 giây
-        lastCheck = now;
-        handleUserInteraction();
-      }
-    };
-    document.addEventListener('click', throttledCheck);
-    document.addEventListener('keydown', throttledCheck);
+    document.addEventListener('click', handleUserInteraction);
+    document.addEventListener('keydown', handleUserInteraction);
 
     return () => {
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      document.removeEventListener('click', throttledCheck);
-      document.removeEventListener('keydown', throttledCheck);
+      document.removeEventListener('click', handleUserInteraction);
+      document.removeEventListener('keydown', handleUserInteraction);
     };
   }, [checkSession, showSessionExpiredModal]);
 
@@ -140,11 +162,9 @@ export function AuthProvider({ children }) {
       setUser(user);
       setToken(token);
       saveAuth({ token, user }, remember);
-      // Bắt đầu kiểm tra session định kỳ sau khi login (mỗi 2 giây)
-      if (sessionCheckIntervalRef.current) {
-        clearInterval(sessionCheckIntervalRef.current);
-      }
-      sessionCheckIntervalRef.current = setInterval(checkSession, 2000);
+      
+      // Không cần kiểm tra session định kỳ liên tục, chỉ mỗi 5 phút
+      // Interval đã được set trong useEffect initializeAuth
     } finally {
       setLoading(false);
     }
@@ -180,7 +200,14 @@ export function AuthProvider({ children }) {
   const isAuthenticated = !!token && !!user;
 
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isAuthenticated, loading }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      login, 
+      logout, 
+      isAuthenticated, 
+      loading
+    }}>
       {children}
       
       {/* Modal thông báo khi đăng nhập từ nguồn khác */}

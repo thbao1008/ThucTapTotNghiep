@@ -265,13 +265,13 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                         <span className={`user-for-page-package-status ${
                           user.status === "banned" 
                             ? "paused" 
-                            : latestPurchase.status === "active" 
+                            : (latestPurchase.expiry_date && new Date(latestPurchase.expiry_date) > new Date())
                             ? "active" 
                             : "expired"
                         }`}>
                           {user.status === "banned"
                             ? "Tạm ngưng"
-                            : latestPurchase.status === "active"
+                            : (latestPurchase.expiry_date && new Date(latestPurchase.expiry_date) > new Date())
                             ? "Còn hạn"
                             : "Hết hạn"}
                         </span>

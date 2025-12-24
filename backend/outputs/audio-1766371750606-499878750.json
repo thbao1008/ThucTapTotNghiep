@@ -1,0 +1,36 @@
+{
+  "language": "en",
+  "text": " Hello, hello",
+  "segments": [
+    {
+      "text": " Hello, hello",
+      "start": 0.031,
+      "end": 1.398,
+      "segment_words": [
+        {
+          "word": "Hello,",
+          "start": 0.031,
+          "end": 1.294,
+          "score": 0.519,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "Hello,",
+      "start": 0.031,
+      "end": 1.294,
+      "score": 0.519,
+      "lang": "en"
+    },
+    {
+      "word": "hello",
+      "start": 1.315,
+      "end": 1.419,
+      "score": 0.2,
+      "lang": "en"
+    }
+  ]
+}

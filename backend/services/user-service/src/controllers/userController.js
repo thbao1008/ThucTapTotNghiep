@@ -73,7 +73,7 @@ export async function listUsers(req, res) {
 
     return res.json({ success: true, users: result.rows });
   } catch (err) {
-    console.error("listUsers error:", err);
+    console.error("listUsers error: - userController.js:76", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -141,7 +141,91 @@ export async function getMyProfile(req, res) {
 
     return res.json({ success: true, user });
   } catch (err) {
-    console.error("getMyProfile error:", err);
+    console.error("getMyProfile error: - userController.js:144", err);
+    return res.status(500).json({ success: false, message: "Server error" });
+  }
+}
+
+export async function getMyPackage(req, res) {
+  try {
+    const userId = req.user?.id || req.user?.user_id || req.user?._id;
+    if (!userId) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    // Check if user is learner and has active package
+    const learnerCheck = await pool.query(`
+      SELECT l.id AS learner_id FROM learners l WHERE l.user_id = $1
+    `, [userId]);
+
+    if (learnerCheck.rows.length > 0) {
+      const subscriptionResult = await pool.query(`
+        SELECT EXISTS (
+          SELECT 1 FROM learners l 
+          LEFT JOIN purchases p ON l.id = p.learner_id AND p.status = 'active'
+          LEFT JOIN packages pkg ON p.package_id = pkg.id
+          WHERE l.user_id = $1 AND (
+            p.expiry_date > NOW() OR
+            (p.expiry_date IS NULL AND 
+             p.created_at + (COALESCE(pkg.duration_days, 0) * INTERVAL '1 day') + (COALESCE(p.extra_days, 0) * INTERVAL '1 day') > NOW())
+          )
+        ) AS has_active_package
+      `, [userId]);
+
+      const hasActivePackage = subscriptionResult.rows[0]?.has_active_package || false;
+
+      if (!hasActivePackage) {
+        return res.status(403).json({
+          message: "Khóa học của bạn đã hết hạn, vui lòng liên hệ hỗ trợ!",
+          expired: true
+        });
+      }
+    }
+
+    const result = await pool.query(`
+      SELECT
+        lp.package_name,
+        lp.status,
+        lp.expiry_date,
+        lp.days_left
+      FROM users u
+      LEFT JOIN learners l ON l.user_id = u.id
+      LEFT JOIN learner_package_view lp ON lp.learner_id = l.id
+      WHERE u.id = $1
+    `, [userId]);
+
+    if (result.rows.length === 0) {
+      return res.json({
+        success: true,
+        package: {
+          status: 'no-package',
+          package_name: null,
+          expiry_date: null,
+          days_left: null,
+          purchase_date: null,
+          total_sessions: 0,
+          used_sessions: 0,
+          remaining_sessions: 0
+        }
+      });
+    }
+
+    const packageData = result.rows[0];
+    return res.json({
+      success: true,
+      package: {
+        package_name: packageData.package_name,
+        status: packageData.status || 'no-package',
+        expiry_date: packageData.expiry_date,
+        days_left: packageData.days_left,
+        purchase_date: null, // Not available in view
+        total_sessions: 0, // Not available in view
+        used_sessions: 0, // Not available in view
+        remaining_sessions: 0 // Not available in view
+      }
+    });
+  } catch (err) {
+    console.error("getMyPackage error: - userController.js:199", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -194,7 +278,7 @@ export async function getUser(req, res) {
 
     return res.json({ success: true, user: result.rows[0] });
   } catch (err) {
-    console.error("getUser error:", err);
+    console.error("getUser error: - userController.js:252", err);
     return res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -230,7 +314,7 @@ export async function createUser(req, res) {
 
     res.status(201).json({ success: true, user: safeUserForClient(user) });
   } catch (err) {
-    console.error("createUser error:", err);
+    console.error("createUser error: - userController.js:288", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -245,7 +329,7 @@ export async function updateUser(req, res) {
     }
     res.json({ success: true, user: safeUserForClient(updated) });
   } catch (err) {
-    console.error("updateUser error:", err);
+    console.error("updateUser error: - userController.js:303", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -259,7 +343,7 @@ export async function deleteUser(req, res) {
     }
     res.json({ success: true, message: "User deleted" });
   } catch (err) {
-    console.error("deleteUser error:", err);
+    console.error("deleteUser error: - userController.js:317", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -273,7 +357,7 @@ export async function toggleUserStatus(req, res) {
     }
     res.json({ success: true, user: safeUserForClient(updated) });
   } catch (err) {
-    console.error("toggleUserStatus error:", err);
+    console.error("toggleUserStatus error: - userController.js:331", err);
     res.status(500).json({ success: false, message: "Server error" });
   }
 }
@@ -283,15 +367,15 @@ export async function toggleUserStatus(req, res) {
 export async function uploadMyAvatar(req, res) {
   try {
     const userId = req.user?.id || req.user?.user_id || req.user?._id;
-    console.log(`[uploadMyAvatar] Request received: userId=${userId}, hasFile=${!!req.file}`);
+    console.log(`[uploadMyAvatar] Request received: userId=${userId}, hasFile=${!!req.file} - userController.js:341`);
     
     if (!userId) {
-      console.error("[uploadMyAvatar] No userId found in token");
+      console.error("[uploadMyAvatar] No userId found in token - userController.js:344");
       return res.status(401).json({ message: "Unauthorized" });
     }
     
     if (!req.file) {
-      console.error("[uploadMyAvatar] No file uploaded");
+      console.error("[uploadMyAvatar] No file uploaded - userController.js:349");
       return res.status(400).json({ message: "No file uploaded" });
     }
     
@@ -300,20 +384,20 @@ export async function uploadMyAvatar(req, res) {
     const mimeType = req.file.mimetype || 'image/jpeg';
     const avatarUrl = `data:${mimeType};base64,${base64String}`;
     
-    console.log(`[uploadMyAvatar] File converted to base64, size: ${base64String.length} chars`);
+    console.log(`[uploadMyAvatar] File converted to base64, size: ${base64String.length} chars - userController.js:358`);
     
     // Lưu base64 vào avatar_url trong database
     const updated = await updateUserInDb(userId, { avatar_url: avatarUrl });
     if (!updated) {
-      console.error(`[uploadMyAvatar] User not found: userId=${userId}`);
+      console.error(`[uploadMyAvatar] User not found: userId=${userId} - userController.js:363`);
       return res.status(404).json({ message: "User not found" });
     }
     
     const user = safeUserForClient(updated);
-    console.log(`[uploadMyAvatar] Avatar updated successfully for user ${userId}`);
+    console.log(`[uploadMyAvatar] Avatar updated successfully for user ${userId} - userController.js:368`);
     return res.json({ success: true, user });
   } catch (err) {
-    console.error("uploadMyAvatar error:", err);
+    console.error("uploadMyAvatar error: - userController.js:371", err);
     return res.status(500).json({ message: "Server error", error: process.env.NODE_ENV === "development" ? err.message : undefined });
   }
 }
@@ -336,7 +420,7 @@ export async function uploadAvatar(req, res) {
     if (!updated) return res.status(404).json({ message: "User not found" });
     return res.json({ success: true, user: safeUserForClient(updated) });
   } catch (err) {
-    console.error("uploadAvatar error:", err);
+    console.error("uploadAvatar error: - userController.js:394", err);
     return res.status(500).json({ message: "Server error" });
   }
 }

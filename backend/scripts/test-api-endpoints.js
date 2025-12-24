@@ -7,6 +7,9 @@ async function testEndpoints() {
   console.log("🧪 Testing API Endpoints...\n");
   console.log(`Base URL: ${BASE_URL}\n`);
 
+  let adminToken = null;
+  let learnerToken = null;
+
   const tests = [
     {
       name: "Health Check",
@@ -28,7 +31,65 @@ async function testEndpoints() {
         identifier: "admin@gmail.com",
         password: "aesp"
       },
-      expectedStatus: 200
+      expectedStatus: 200,
+      onSuccess: (response) => {
+        adminToken = response.data.token;
+      }
+    },
+    {
+      name: "Login (Learner)",
+      method: "POST",
+      url: `${BASE_URL}/api/auth/login`,
+      data: {
+        identifier: "hoangthaohoa1@example.com",
+        password: "123456"
+      },
+      expectedStatus: 200,
+      onSuccess: (response) => {
+        learnerToken = response.data.token;
+      }
+    },
+    {
+      name: "Admin Access Admin Route",
+      method: "GET",
+      url: `${BASE_URL}/api/admin/users`,
+      expectedStatus: 200,
+      headers: () => ({
+        Authorization: `Bearer ${adminToken}`
+      })
+    },
+    {
+      name: "AI Service Health",
+      method: "GET",
+      url: `${BASE_URL}/api/ai/aiesp/status`,
+      expectedStatus: 200,
+      headers: () => ({
+        Authorization: `Bearer ${adminToken}`
+      })
+    },
+    {
+      name: "AI Assistant Conversation",
+      method: "POST",
+      url: `${BASE_URL}/api/ai/assistant/conversation`,
+      data: {
+        message: "Hello, can you help me with English learning?"
+      },
+      expectedStatus: 200,
+      headers: () => ({
+        Authorization: `Bearer ${learnerToken}`
+      })
+    },
+    {
+      name: "AI Auto Topics Detection",
+      method: "POST",
+      url: `${BASE_URL}/api/ai/auto-topics`,
+      data: {
+        text: "I want to learn about technology and programming"
+      },
+      expectedStatus: 200,
+      headers: () => ({
+        Authorization: `Bearer ${adminToken}`
+      })
     }
   ];
 
@@ -44,7 +105,11 @@ async function testEndpoints() {
       
       if (test.data) {
         config.data = test.data;
-        config.headers = { "Content-Type": "application/json" };
+        config.headers = { "Content-Type": "application/json", ...config.headers };
+      }
+
+      if (test.headers) {
+        config.headers = { ...config.headers, ...(typeof test.headers === 'function' ? test.headers() : test.headers) };
       }
 
       const response = await axios(config);
@@ -57,6 +122,9 @@ async function testEndpoints() {
         if (test.name === "Login") {
           console.log(`  🔐 Token: ${response.data?.token ? "Received" : "Missing"}`);
           console.log(`  👤 User: ${response.data?.user?.email || "N/A"}`);
+        }
+        if (test.onSuccess) {
+          test.onSuccess(response);
         }
       } else {
         console.log(`  ⚠️  Status: ${response.status} (Expected: ${test.expectedStatus})`);

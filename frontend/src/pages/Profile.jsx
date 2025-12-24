@@ -27,7 +27,6 @@ export default function ProfilePage() {
   const [bioInput, setBioInput] = useState("");
   const [savingBio, setSavingBio] = useState(false);
   const [mentorId, setMentorId] = useState(null);
-  const [packageInfo, setPackageInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(user?.avatar_url || user?.avatar || null);
 
@@ -105,22 +104,6 @@ export default function ProfilePage() {
             }
           }
           
-          // Load package info nếu là learner
-          if (userRes.data.user.role?.toLowerCase() === "learner") {
-            try {
-              const learnerRes = await api.get(`/learners/by-user/${userId}`);
-              const learnerId = learnerRes.data?.learner?.id;
-              if (learnerId) {
-                const purchaseRes = await api.get(`/learners/${learnerId}/latest-purchase`);
-                if (purchaseRes.data?.purchase) {
-                  setPackageInfo(purchaseRes.data.purchase);
-                }
-              }
-            } catch (err) {
-              console.error("Error loading learner package:", err);
-            }
-          }
-
           // Load security question (chỉ mentor và learner)
           if (userRes.data.user.role?.toLowerCase() === "mentor" || userRes.data.user.role?.toLowerCase() === "learner") {
             try {
@@ -422,17 +405,6 @@ export default function ProfilePage() {
             </div>
           )}
           
-          {/* Gói học (cho learner) */}
-          {(role === "learner" || user.role?.toLowerCase() === "learner") && packageInfo && (
-            <div className="info-row">
-              <strong>Gói học:</strong>{" "}
-              {packageInfo.package_name || "Chưa có gói"}
-              {packageInfo.days_left !== null && packageInfo.days_left !== undefined && (
-                <span> - Còn {Math.floor(packageInfo.days_left)} ngày</span>
-              )}
-            </div>
-          )}
-
           {/* Đổi mật khẩu và câu hỏi bảo mật (chỉ mentor và learner) */}
           {(role === "mentor" || role === "learner" || user.role?.toLowerCase() === "mentor" || user.role?.toLowerCase() === "learner") && (
             <>

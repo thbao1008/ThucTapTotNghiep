@@ -18,6 +18,33 @@ function getProjectRoot() {
   return path.resolve(__dirname, "..", "..", "..");
 }
 
+// Throttling for repetitive logging
+const loggedMessages = new Set();
+const messageLogTimestamps = new Map();
+
+function logWithThrottle(message, throttleMs = 30000) {
+  const now = Date.now();
+  
+  if (loggedMessages.has(message)) {
+    const lastLogTime = messageLogTimestamps.get(message) || 0;
+    if (now - lastLogTime < throttleMs) {
+      return; // Skip logging
+    }
+  }
+  
+  console.log(message);
+  loggedMessages.add(message);
+  messageLogTimestamps.set(message, now);
+  
+  // Cleanup old timestamps (older than 5 minutes)
+  for (const [msg, timestamp] of messageLogTimestamps) {
+    if (now - timestamp > 300000) { // 5 minutes
+      messageLogTimestamps.delete(msg);
+      loggedMessages.delete(msg);
+    }
+  }
+}
+
 const app = express();
 const PORT = process.env.FILE_SERVICE_PORT || 4011;
 
@@ -93,7 +120,7 @@ app.use("/uploads", (req, res, next) => {
   const filePath = path.join(uploadsDir, filename);
   const exists = fs.existsSync(filePath);
   
-  console.log(`[File Service] GET ${req.path} → ${filePath} (exists: ${exists})`);
+  logWithThrottle(`[File Service] GET ${req.path} → ${filePath} (exists: ${exists})`);
   
   if (!exists) {
     // List files in uploads directory for debugging

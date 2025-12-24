@@ -3,12 +3,14 @@ import React, { useEffect, useState, useRef } from "react";
 import { getAuth } from "../../utils/auth";
 import api from "../../api";
 import Modal from "../common/Modal";
+import { useAuth } from "../../context/AuthContext";
 import "../../styles/challenge.css";
 import ChallengeDetail from "./ChallengeDetail";
 import { FiStar, FiUser } from "react-icons/fi";
 
 export default function Challenges() {
   const auth = getAuth();
+  const {  } = useAuth();
   const userId = auth?.user?.id ?? auth?.user?._id ?? auth?.user?.user_id ?? null;
   const startedRef = useRef(false);
 
@@ -155,7 +157,7 @@ export default function Challenges() {
     }
   }
 
-  return (
+  const content = (
     <div className="challenge-page">
       <div className="page-header">
         <h2 className="page-title">Danh sách Challenges</h2>
@@ -290,6 +292,12 @@ export default function Challenges() {
           />
         </Modal>
       )}
+    </div>
+  );
+
+  return (
+    <div className="challenges">
+      {content}
     </div>
   );
 }

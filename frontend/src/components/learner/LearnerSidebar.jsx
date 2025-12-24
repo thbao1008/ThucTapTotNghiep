@@ -2,6 +2,7 @@
 import React from "react";
 import { NavLink } from "react-router-dom";
 import { getAuth } from "../../utils/auth";
+import { useAuth } from "../../context/AuthContext";
 import {
   FaHome,
   FaBook,
@@ -14,21 +15,25 @@ import {
 
 export default function LearnerSidebar({ basePath = "/learn", collapsed = false }) {
   const auth = getAuth();
+  const {  } = useAuth();
   const role = auth?.user?.role || "guest";
 
   const learnerMenu = [
-    { id: "dashboard", label: "Dashboard", path: `${basePath}/dashboard`, icon: <FaHome /> },
-    { id: "catalog", label: "Learning Catalog", path: `${basePath}/catalog`, icon: <FaBook /> },
-    { id: "practice", label: "Speaking Practice", path: `${basePath}/practice`, icon: <FaMicrophone /> },
-    { id: "challenges", label: "Challenges", path: `${basePath}/challenges`, icon: <FaBolt /> },
-    { id: "communicate", label: "Communicate Center", path: `${basePath}/communicate`, icon: <FaComments /> },
-    { id: "feedback", label: "Feedback", path: `${basePath}/feedback`, icon: <FaPen /> },
+    { id: "dashboard", label: "Dashboard", path: `${basePath}/dashboard`, icon: <FaHome />, alwaysShow: true },
+    { id: "catalog", label: "Learning Catalog", path: `${basePath}/catalog`, icon: <FaBook />, alwaysShow: false },
+    { id: "practice", label: "Speaking Practice", path: `${basePath}/practice`, icon: <FaMicrophone />, alwaysShow: false },
+    { id: "challenges", label: "Challenges", path: `${basePath}/challenges`, icon: <FaBolt />, alwaysShow: false },
+    { id: "communicate", label: "Communicate Center", path: `${basePath}/communicate`, icon: <FaComments />, alwaysShow: false },
+    { id: "feedback", label: "Feedback", path: `${basePath}/feedback`, icon: <FaPen />, alwaysShow: false },
   ];
+
+  // Show all menu items
+  const visibleMenu = learnerMenu;
 
   return (
     <>
       <nav className="sidebar-nav" aria-label="Learner navigation">
-        {learnerMenu.map((item) => (
+        {visibleMenu.map((item) => (
           <NavLink
             key={item.id}
             to={item.path}

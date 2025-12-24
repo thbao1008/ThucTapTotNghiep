@@ -1,0 +1,78 @@
+{
+  "language": "en",
+  "text": " Can you untemble, fry, fathet?",
+  "segments": [
+    {
+      "text": " Can you untemble, fry, fathet?",
+      "start": 0.031,
+      "end": 5.431,
+      "segment_words": [
+        {
+          "word": "Can",
+          "start": 0.031,
+          "end": 0.901,
+          "score": 0.301,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 0.921,
+          "end": 1.689,
+          "score": 0.558,
+          "lang": "en"
+        },
+        {
+          "word": "untemble,",
+          "start": 2.64,
+          "end": 3.409,
+          "score": 0.681,
+          "lang": "en"
+        },
+        {
+          "word": "fry,",
+          "start": 4.582,
+          "end": 4.885,
+          "score": 0.787,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "Can",
+      "start": 0.031,
+      "end": 0.901,
+      "score": 0.301,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 0.921,
+      "end": 1.689,
+      "score": 0.558,
+      "lang": "en"
+    },
+    {
+      "word": "untemble,",
+      "start": 2.64,
+      "end": 3.409,
+      "score": 0.681,
+      "lang": "en"
+    },
+    {
+      "word": "fry,",
+      "start": 4.582,
+      "end": 4.885,
+      "score": 0.787,
+      "lang": "en"
+    },
+    {
+      "word": "fathet?",
+      "start": 5.006,
+      "end": 5.451,
+      "score": 0.648,
+      "lang": "en"
+    }
+  ]
+}

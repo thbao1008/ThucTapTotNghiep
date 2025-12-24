@@ -94,6 +94,22 @@ const upload = multer({
   }
 });
 
+// ====== PUBLIC SUPPORT ROUTE ======
+router.post("/support", async (req, res) => {
+  const { name, email, phone, note } = req.body;
+  try {
+    const result = await pool.query(
+      `INSERT INTO support_requests (name, email, phone, note) 
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [name, email, phone, note]
+    );
+    res.json({ success: true, request: result.rows[0] });
+  } catch (err) {
+    console.error("❌ Lỗi tạo support request: - adminRoutes.js", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
 // ====== Apply middleware to all admin routes ======
 router.use(authGuard);
 router.use(adminGuard);
@@ -206,23 +222,6 @@ router.get("/reports/learners-progress", getAllLearnersWithProgress);
 router.get("/reports/mentors", getAllMentors);
 router.patch("/reports/:id/status", updateReportStatus);
 router.put("/reports/learner/:id/note", updateLearnerNote);
-
-// ====== SUPPORT ROUTES ======
-// Public route - tạo support request (người dùng đăng ký từ Home)
-router.post("/support", async (req, res) => {
-  const { name, email, phone, note } = req.body;
-  try {
-    const result = await pool.query(
-      `INSERT INTO support_requests (name, email, phone, note) 
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [name, email, phone, note]
-    );
-    res.json({ success: true, request: result.rows[0] });
-  } catch (err) {
-    console.error("❌ Lỗi tạo support request: - adminRoutes.js", err);
-    res.status(500).json({ error: "Server error" });
-  }
-});
 
 // Admin xem danh sách support requests
 router.get("/support", async (req, res) => {

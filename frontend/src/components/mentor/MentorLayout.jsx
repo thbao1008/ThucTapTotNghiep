@@ -14,7 +14,9 @@ export default function MentorLayout({ children }) {
           <MentorHeader />
         </header>
         <div className="mentor-breadcrumbs">{/* breadcrumbs nếu cần */}</div>
-        <main className="shell-content">{children ?? <Outlet />}</main>
+        <main className="shell-content">
+          {children ?? <Outlet />}
+        </main>
       </div>
     </div>
   );

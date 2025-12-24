@@ -1,6 +1,7 @@
 ﻿// src/components/admin/AdminSidebar.jsx
 import React, { useEffect, useState } from "react";
 import { NavLink } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import {
   FiHome, FiUsers, FiPackage,
   FiShoppingBag, FiBarChart2, FiLifeBuoy,
@@ -9,6 +10,7 @@ import {
 import api from "../../api.js";
 
 export default function AdminSidebar({ collapsed = false }) {
+  const {  } = useAuth();
   const [stats, setStats] = useState({ traffic: 0, online: 0 });
 
   async function fetchTrafficStats() {
@@ -32,19 +34,22 @@ export default function AdminSidebar({ collapsed = false }) {
   }, []);
 
   const menu = [
-    { id: "dashboard", label: "Dashboard", icon: <FiHome />, to: "/admin" },
-    { id: "users", label: "Users", icon: <FiUsers />, to: "/admin/users" },
-    { id: "packages", label: "Packages", icon: <FiPackage />, to: "/admin/packages" },
-    { id: "purchases", label: "Purchases", icon: <FiShoppingBag />, to: "/admin/purchases" },
-    { id: "reports", label: "Reports", icon: <FiBarChart2 />, to: "/admin/reports" },
-    { id: "support", label: "Support", icon: <FiLifeBuoy />, to: "/admin/support" },
-    { id: "communicate", label: "Communicate", icon: <FiShare2 />, to: "/admin/communicate" }, // thêm
+    { id: "dashboard", label: "Dashboard", icon: <FiHome />, to: "/admin", alwaysShow: true },
+    { id: "users", label: "Users", icon: <FiUsers />, to: "/admin/users", alwaysShow: false },
+    { id: "packages", label: "Packages", icon: <FiPackage />, to: "/admin/packages", alwaysShow: false },
+    { id: "purchases", label: "Purchases", icon: <FiShoppingBag />, to: "/admin/purchases", alwaysShow: false },
+    { id: "reports", label: "Reports", icon: <FiBarChart2 />, to: "/admin/reports", alwaysShow: false },
+    { id: "support", label: "Support", icon: <FiLifeBuoy />, to: "/admin/support", alwaysShow: false },
+    { id: "communicate", label: "Communicate", icon: <FiShare2 />, to: "/admin/communicate", alwaysShow: false },
   ];
+
+  // Show all menu items
+  const visibleMenu = menu;
 
   return (
     <>
       <nav className="sidebar-nav">
-        {menu.map((item) => (
+        {visibleMenu.map((item) => (
           <NavLink
             key={item.id}
             to={item.to}

@@ -104,6 +104,7 @@ router.get("/speaking-practice/incomplete-session", speakingPracticeCtrl.getInco
 router.post("/speaking-practice/sessions", speakingPracticeCtrl.createPracticeSession);
 router.get("/speaking-practice/sessions/:sessionId/prompt", speakingPracticeCtrl.getPrompt);
 router.post("/speaking-practice/sessions/:sessionId/rounds", upload.single("audio"), speakingPracticeCtrl.saveRound);
+router.get("/speaking-practice/sessions/:sessionId/rounds", speakingPracticeCtrl.getRoundsForSession);
 router.get("/speaking-practice/sessions/:sessionId/rounds/:roundId/analysis", speakingPracticeCtrl.getRoundAnalysis);
 router.post("/speaking-practice/sessions/:sessionId/rounds/:roundId/translation", speakingPracticeCtrl.checkTranslation);
 router.post("/learners/speaking-practice/rounds/:roundId/word-meanings", speakingPracticeCtrl.saveWordMeanings);

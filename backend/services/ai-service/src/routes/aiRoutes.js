@@ -38,9 +38,53 @@ router.post("/call-openrouter", async (req, res) => {
   }
 });
 
-// Assistant conversation route (for Learner Service)
-router.post("/assistant/conversation", authGuard, async (req, res) => {
+// Internal AI conversation route (no auth required for service-to-service calls)
+router.post("/internal/assistant/conversation", async (req, res) => {
   try {
+    const { message, history = [] } = req.body;
+    if (!message) {
+      return res.status(400).json({ error: "message is required" });
+    }
+    
+    // Convert to messages format for OpenRouter
+    const messages = [
+      ...history,
+      { role: "user", content: message }
+    ];
+    
+    const result = await aiService.callOpenRouter(messages, {});
+    res.json({ 
+      response: result.choices?.[0]?.message?.content || result.response || result.message || "",
+      ...result 
+    });
+  } catch (err) {
+    console.error("Error in internal assistant conversation:", err);
+    res.status(err.status || 500).json({ 
+      error: err.message || "Failed to process conversation",
+      code: err.code 
+    });
+  }
+});
+
+// Assistant conversation route (for Learner Service)
+// Allow internal calls without auth, but require auth for external calls
+router.post("/assistant/conversation", async (req, res) => {
+  try {
+    // Check if this is an internal call (from API Gateway)
+    const isInternalCall = req.headers['x-forwarded-host'] || req.headers['x-forwarded-proto'];
+    
+    // For internal calls, skip auth check
+    if (!isInternalCall) {
+      // Apply auth guard for external calls
+      const authGuard = (await import("../middleware/authGuard.js")).authGuard;
+      await new Promise((resolve, reject) => {
+        authGuard(req, res, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
+    }
+    
     const { message, history = [] } = req.body;
     if (!message) {
       return res.status(400).json({ error: "message is required" });

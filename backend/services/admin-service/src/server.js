@@ -4,6 +4,7 @@ import cors from "cors";
 // Import db first to ensure connection is established
 import "./config/db.js";
 import { authGuard } from "./middleware/authGuard.js";
+import { packageGuard } from "./middleware/packageGuard.js";
 import adminRoutes from "./routes/adminRoutes.js";
 import { seedAdmins } from "./seed/seedAdminsFromFile.js";
 
@@ -17,8 +18,20 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "admin-service" });
 });
 
+// Middleware to check package for non-dashboard routes
+const conditionalPackageGuard = (req, res, next) => {
+  const isDashboardRoute = req.path.includes('/dashboard') ||
+                          req.path === '/';
+
+  if (isDashboardRoute) {
+    return next(); // Skip package check for dashboard
+  }
+
+  return packageGuard(req, res, next);
+};
+
 // Routes
-app.use("/admin", adminRoutes);
+app.use("/admin", authGuard, conditionalPackageGuard, adminRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

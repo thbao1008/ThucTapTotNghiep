@@ -1,6 +1,7 @@
 // frontend/src/components/learner/LearnerDashboard.jsx
 import React, { useState, useEffect } from "react";
 import { getAuth } from "../../utils/auth";
+import { useAuth } from "../../context/AuthContext";
 import api from "../../api";
 import ProgressAnalytics from "./ProgressAnalytics";
 import Calendar from "../common/Calendar";
@@ -9,6 +10,7 @@ import "../../styles/learner-dashboard.css";
 
 export default function LearnerDashboard() {
   const auth = getAuth();
+  const { } = useAuth();
   const userId = auth?.user?.id ?? auth?.user?._id ?? auth?.user?.user_id ?? null;
   const [learnerId, setLearnerId] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -79,7 +81,7 @@ export default function LearnerDashboard() {
       </div>
 
       <div className="dashboard-grid">
-        {/* Left Column: Progress Analytics (phân tích với số liệu) */}
+        {/* Left Column: Progress Analytics */}
         <div className="dashboard-left-column">
           <div className="dashboard-section analytics-section">
             <div className="section-header">
@@ -98,18 +100,18 @@ export default function LearnerDashboard() {
           </div>
         </div>
 
-        {/* Right Column: Calendar + Recommendations (lịch học + gợi ý cải tiến) */}
+        {/* Right Column: Calendar + Recommendations */}
         <div className="dashboard-right-column">
           {/* Calendar */}
           <div className="dashboard-section calendar-section">
             <Calendar learnerId={learnerId} />
           </div>
 
-          {/* AI Recommendations - Below Calendar */}
+          {/* AI Recommendations */}
           {analytics && analytics.recommendations && (
             <div className="dashboard-section recommendations-section">
               <div className="section-header">
-                <h2>Đánh giá & Gợi ý từ AI</h2>
+                <h2>Đánh giá & Gợi Ý từ AI</h2>
                 <p className="section-subtitle">Nhận gợi ý cải thiện từ AI dựa trên tiến độ học tập</p>
               </div>
               <div className="recommendations-content">
@@ -119,7 +121,7 @@ export default function LearnerDashboard() {
                   </div>
                 )}
 
-                {analytics.recommendations.strengths && analytics.recommendations.strengths.length > 0 && (
+                {Array.isArray(analytics.recommendations.strengths) && analytics.recommendations.strengths.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
                       <FiCheckCircle className="icon-success" /> Điểm Mạnh
@@ -132,7 +134,7 @@ export default function LearnerDashboard() {
                   </div>
                 )}
 
-                {analytics.recommendations.improvements_needed && analytics.recommendations.improvements_needed.length > 0 && (
+                {Array.isArray(analytics.recommendations.improvements_needed) && analytics.recommendations.improvements_needed.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
                       <FiAlertCircle className="icon-warning" /> Cần Cải Thiện
@@ -145,7 +147,7 @@ export default function LearnerDashboard() {
                   </div>
                 )}
 
-                {analytics.recommendations.recommendations && analytics.recommendations.recommendations.length > 0 && (
+                {Array.isArray(analytics.recommendations.recommendations) && analytics.recommendations.recommendations.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
                       <FiTarget className="icon-primary" /> Gợi Ý Cải Thiện
@@ -158,7 +160,7 @@ export default function LearnerDashboard() {
                   </div>
                 )}
 
-                {analytics.recommendations.priority_areas && analytics.recommendations.priority_areas.length > 0 && (
+                {Array.isArray(analytics.recommendations.priority_areas) && analytics.recommendations.priority_areas.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
                       <FiTarget className="icon-primary" /> Lĩnh Vực Ưu Tiên
@@ -178,4 +180,3 @@ export default function LearnerDashboard() {
     </div>
   );
 }
-

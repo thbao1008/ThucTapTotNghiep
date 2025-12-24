@@ -6,11 +6,13 @@ import Modal from "../components/common/Modal";
 import AudioPlayer from "../components/common/AudioPlayer";
 import Notifications from "../components/common/Notifications";
 import AdminCommunity from "../components/admin/AdminCommunity";
+import { useAuth } from "../context/AuthContext";
 import { getAuth } from "../utils/auth";
 import { normalizeFileUrl, normalizeVideoUrl, normalizeImageUrl, normalizeAudioUrl } from "../utils/apiHelpers";
 import "../styles/communicate.css";
 
 export default function CommunicateCenter() {
+  const {  } = useAuth();
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all"); // "all" | "my-posts" | "liked"
@@ -554,7 +556,7 @@ export default function CommunicateCenter() {
     rejected: posts.filter(p => p.status === "rejected").length
   };
 
-  return (
+  const content = (
     <div className="communicate-center">
       <div className="communicate-header">
         <h2>Cư Dân AESP</h2>
@@ -1205,6 +1207,12 @@ export default function CommunicateCenter() {
           )}
         </>
       )}
+    </div>
+  );
+
+  return (
+    <div className="communicate-center">
+      {content}
     </div>
   );
 }

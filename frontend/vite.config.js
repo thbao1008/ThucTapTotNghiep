@@ -6,12 +6,16 @@ import { dirname, resolve } from "path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Track logged errors to prevent spam
+const loggedErrors = new Set();
+const errorLogTimestamps = new Map();
+
 export default defineConfig({
   plugins: [react()],
   root: __dirname, // Đảm bảo root là thư mục frontend
   server: {
     port: 5173,
-    strictPort: true,
+    strictPort: false, // Allow fallback to another port if 5173 is busy
     host: true, // Cho phép truy cập từ network
     open: process.env.DOCKER !== "true", // Tự động mở browser (tắt trong Docker)
     proxy: {
@@ -37,7 +41,24 @@ export default defineConfig({
               return;
             }
             
-            console.error("[Vite Proxy] Error:", err.message, err.code);
+            // Prevent spam logging for repeated errors
+            const errorKey = `${err.code}_${req.url}`;
+            const now = Date.now();
+            const lastLogTime = errorLogTimestamps.get(errorKey) || 0;
+            
+            // Only log if we haven't logged this error in the last 30 seconds
+            if (now - lastLogTime > 30000) {
+              console.error("[Vite Proxy] Error:", err.message, err.code);
+              errorLogTimestamps.set(errorKey, now);
+              
+              // Clean up old timestamps (older than 5 minutes)
+              for (const [key, timestamp] of errorLogTimestamps.entries()) {
+                if (now - timestamp > 300000) {
+                  errorLogTimestamps.delete(key);
+                }
+              }
+            }
+            
             // Don't crash - return friendly error message
             if (res && !res.headersSent) {
               if (err.code === 'ECONNREFUSED') {
@@ -83,7 +104,17 @@ export default defineConfig({
         timeout: 30000,
         configure: (proxy, options) => {
           proxy.on("error", (err, req, res) => {
-            console.error("[Vite Proxy /uploads] Error:", err.message);
+            // Prevent spam logging for repeated errors
+            const errorKey = `uploads_${err.code}`;
+            const now = Date.now();
+            const lastLogTime = errorLogTimestamps.get(errorKey) || 0;
+            
+            // Only log if we haven't logged this error in the last 30 seconds
+            if (now - lastLogTime > 30000) {
+              console.error("[Vite Proxy /uploads] Error:", err.message);
+              errorLogTimestamps.set(errorKey, now);
+            }
+            
             if (res && !res.headersSent) {
               res.writeHead(502, { "Content-Type": "application/json" });
               res.end(JSON.stringify({ 

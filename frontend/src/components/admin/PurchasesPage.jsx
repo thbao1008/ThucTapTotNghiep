@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
+import { FiUser, FiPhone, FiCalendar, FiClock, FiDollarSign, FiBook, FiBarChart, FiCheck, FiRefreshCw, FiEye, FiAlertTriangle, FiSearch, FiPackage, FiPlay, FiPause, FiX } from "react-icons/fi";
 import api from "../../api";
 import "../../styles/admin-purchase.css";
 
@@ -100,99 +101,181 @@ export default function PurchasesPage() {
   // Kiểm tra xem có gói nào đang active không
   const hasActivePackage = purchases.some((p) => p.purchase_status === "active" && (p.days_left === null || p.days_left > 0));
 
+  if (loading) {
+    return (
+      <div className="admin-purchase">
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p>Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="admin-purchase">
-      <div className="admin-purchase-header">
-        <h2>Lịch sử Purchases của {learnerName}</h2>
+      {/* Header Section */}
+      <div className="purchase-header-section">
+        <div className="header-content">
+          <div className="header-text">
+            <h1 className="page-title"><FiBarChart style={{ marginRight: '8px' }} />Lịch sử Gói Học</h1>
+            <p className="page-subtitle">
+              Quản lý tất cả các gói học của {learnerName}
+            </p>
+          </div>
+          <div className="header-stats">
+            <div className="stat-card">
+              <div className="stat-icon"><FiPackage /></div>
+              <div className="stat-info">
+                <span className="stat-number">{purchases.length}</span>
+                <span className="stat-label">Tổng gói</span>
+              </div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-icon"><FiCheck /></div>
+              <div className="stat-info">
+                <span className="stat-number">
+                  {purchases.filter(p => p.days_left > 0).length}
+                </span>
+                <span className="stat-label">Đang active</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="page-actions">
+          <button
+            className="btn-change-package-modern"
+            onClick={() => setShowChangePackageModal(true)}
+            disabled={hasActivePackage}
+          >
+            <span className="btn-icon">🔄</span>
+            Đổi gói học
+          </button>
+        </div>
       </div>
 
-      <div className="admin-purchase-actions">
-        <button
-          className="btn-change-package"
-          onClick={() => setShowChangePackageModal(true)}
-          disabled={hasActivePackage}
-        >
-          Đổi gói
-        </button>
-      </div>
+      {/* Content Section */}
+      <div className="purchase-content">
+        {purchases.length === 0 ? (
+          <div className="empty-state-card">
+            <div className="empty-icon">📭</div>
+            <h3>Không có gói học nào</h3>
+            <p>Học viên này chưa đăng ký gói học nào</p>
+          </div>
+        ) : (
+          <div className="purchase-timeline">
+            {purchases.map((p, idx) => {
+              const isLatestExpired = latestExpiredPurchase && p.purchase_id === latestExpiredPurchase.purchase_id;
+              const canRenew = isLatestExpired && !hasActivePackage;
+              const canChangePackage = !hasActivePackage;
 
-      <div className="admin-purchase-table-container">
-        <table className="admin-purchase-table">
-          <thead>
-            <tr>
-              <th>STT</th>
-              <th>Gói học</th>
-              <th>Ngày tạo</th>
-              <th>Trạng thái</th>
-              <th>Còn lại (ngày)</th>
-              <th>Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            {purchases.length === 0 ? (
-              <tr>
-                <td colSpan="6" className="empty-state">
-                  Không có purchase nào
-                </td>
-              </tr>
-            ) : (
-              purchases.map((p, idx) => {
-                const isLatestExpired = latestExpiredPurchase && p.purchase_id === latestExpiredPurchase.purchase_id;
-                const canRenew = isLatestExpired && !hasActivePackage;
-                const canChangePackage = !hasActivePackage;
+              return (
+                <div key={p.purchase_id || p.id} className="timeline-item">
+                  <div className="timeline-marker">
+                    <div className={`timeline-dot ${
+                      p.days_left > 0
+                        ? "status-active"
+                        : p.purchase_status === "paused"
+                          ? "status-paused"
+                          : "status-expired"
+                    }`}></div>
+                    {idx < purchases.length - 1 && <div className="timeline-line"></div>}
+                  </div>
 
-                return (
-                  <tr key={p.purchase_id || p.id}>
-                    <td>{idx + 1}</td>
-                    <td>{p.package_name || "Chưa có gói"}</td>
-                    <td>
-                      {p.created_at
-                        ? new Date(p.created_at).toLocaleDateString("vi-VN")
-                        : "1/1/1970"}
-                    </td>
-                    <td>
-                      <span
-                        className={`status-badge ${
-                          p.purchase_status === "active"
-                            ? "status-active"
-                            : p.purchase_status === "expired"
-                            ? "status-expired"
-                            : p.purchase_status === "paused"
-                            ? "status-paused"
-                            : "status-no-package"
-                        }`}
-                      >
-                        {p.purchase_status === "active" && "Còn hạn"}
-                        {p.purchase_status === "expired" && "Hết hạn"}
-                        {p.purchase_status === "paused" && "Tạm ngưng"}
-                        {!p.purchase_status || p.purchase_status === null
-                          ? "Chưa có gói"
-                          : p.purchase_status}
-                      </span>
-                    </td>
-                    <td>
-                      {p.days_left !== null && p.days_left !== undefined
-                        ? `${p.days_left} ngày`
-                        : "0 ngày"}
-                    </td>
-                    <td>
-                      <div className="action-buttons">
+                  <div className="timeline-content">
+                    <div className="purchase-card-detailed">
+                      <div className="card-header-detailed">
+                        <div className="package-title-section">
+                          <h3 className="package-title">{p.package_name || "Chưa có gói"}</h3>
+                          <div className={`package-status ${
+                            p.days_left > 0
+                              ? "status-active"
+                              : p.purchase_status === "paused"
+                                ? "status-paused"
+                                : "status-expired"
+                          }`}>
+                            {p.days_left > 0 && "Còn hạn"}
+                            {p.days_left <= 0 && p.purchase_status !== "paused" && "Hết hạn"}
+                            {p.purchase_status === "paused" && "Tạm ngưng"}
+                            {!p.purchase_status || p.purchase_status === null && "Chưa có gói"}
+                          </div>
+                        </div>
+
+                        {isLatestExpired && (
+                          <div className="expired-badge">
+                            <span className="expired-icon"><FiAlertTriangle /></span>
+                            Gói gần nhất đã hết hạn
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="card-details-grid">
+                        <div className="detail-item">
+                          <span className="detail-icon"><FiCalendar /></span>
+                          <div className="detail-content">
+                            <span className="detail-label">Ngày tạo</span>
+                            <span className="detail-value">
+                              {p.created_at
+                                ? new Date(p.created_at).toLocaleDateString("vi-VN")
+                                : "1/1/1970"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="detail-item">
+                          <span className="detail-icon"><FiClock /></span>
+                          <div className="detail-content">
+                            <span className="detail-label">Còn lại</span>
+                            <span className={`detail-value ${
+                              p.days_left > 0
+                                ? "days-active"
+                                : p.purchase_status === "paused"
+                                  ? "days-paused"
+                                  : "days-expired"
+                            }`}>
+                              {p.days_left !== null && p.days_left !== undefined
+                                ? `${p.days_left} ngày`
+                                : "0 ngày"}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="detail-item">
+                          <span className="detail-icon"><FiDollarSign /></span>
+                          <div className="detail-content">
+                            <span className="detail-label">Giá</span>
+                            <span className="detail-value price">
+                              {p.price
+                                ? p.price.toLocaleString("vi-VN", {
+                                    style: "currency",
+                                    currency: "VND",
+                                  })
+                                : "-"}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="card-actions-detailed">
                         {canRenew && (
                           <button
-                            className="btn-renew"
+                            className="btn-renew-modern"
                             onClick={() => handleRenew(p.purchase_id || p.id)}
                           >
+                            <span className="btn-icon"><FiRefreshCw /></span>
                             Gia hạn
                           </button>
                         )}
                       </div>
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Modal đổi gói */}
@@ -208,7 +291,7 @@ export default function PurchasesPage() {
                 className="package-modal-close"
                 onClick={() => setShowChangePackageModal(false)}
               >
-                ×
+                <FiX />
               </button>
             </div>
             <div className="package-list">

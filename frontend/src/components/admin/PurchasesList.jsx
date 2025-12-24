@@ -1,5 +1,6 @@
 ﻿import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { FiUser, FiPhone, FiCalendar, FiClock, FiDollarSign, FiBook, FiBarChart, FiCheck, FiRefreshCw, FiEye, FiAlertTriangle, FiSearch, FiMail } from "react-icons/fi";
 import api from "../../api";
 import "../../styles/admin-purchase.css";
 
@@ -53,101 +54,147 @@ export default function PurchasesList({ learnerId }) {
     return () => clearTimeout(timeoutId);
   }, [searchPhone, learnerId]);
 
-  if (loading) return <p>Đang tải dữ liệu...</p>;
+  if (loading) {
+    return (
+      <div className="admin-purchase">
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+          <p>Đang tải dữ liệu...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="admin-purchase">
-      <div className="admin-purchase-header">
-        <h2>Danh sách gói học được đăng kí</h2>
+      {/* Header Section */}
+      <div className="purchase-header-section">
+        <div className="header-content">
+          <div className="header-text">
+            <h1 className="page-title">📚 Quản lý Gói Học</h1>
+            <p className="page-subtitle">
+              Theo dõi và quản lý tất cả các gói học đã được đăng ký
+            </p>
+          </div>
+          {!learnerId && (
+            <div className="header-stats">
+              <div className="stat-card">
+                <div className="stat-icon">📊</div>
+                <div className="stat-info">
+                  <span className="stat-number">{purchases.length}</span>
+                  <span className="stat-label">Tổng gói</span>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {!learnerId && (
-          <div className="admin-purchase-search">
-            <input
-              type="text"
-              value={searchPhone}
-              onChange={(e) => setSearchPhone(e.target.value)}
-              placeholder="Tìm kiếm theo số điện thoại (tự động tìm khi nhập)..."
-            />
+          <div className="search-section">
+            <div className="search-input-wrapper">
+              <span className="search-icon">🔍</span>
+              <input
+                type="text"
+                value={searchPhone}
+                onChange={(e) => setSearchPhone(e.target.value)}
+                placeholder="Tìm kiếm theo số điện thoại..."
+                className="search-input"
+              />
+            </div>
           </div>
         )}
       </div>
 
-      <div className="admin-purchase-table-container">
-        <table className="admin-purchase-table">
-          <thead>
-            <tr>
-              <th>STT</th>
-              <th>Gói học</th>
-              <th>Tên</th>
-              <th>SĐT</th>
-              <th>Ngày mua</th>
-              <th>Tình trạng</th>
-              <th>Còn lại (ngày)</th>
-              <th>Giá</th>
-              <th>Thao tác</th>
-            </tr>
-          </thead>
-          <tbody>
-            {purchases.length === 0 ? (
-              <tr>
-                <td colSpan="9" className="empty-state">
-                  Không có purchase nào
-                </td>
-              </tr>
-            ) : (
-              purchases.map((p, idx) => (
-                <tr key={p.purchase_id}>
-                  <td>{idx + 1}</td>
-                  <td>{p.package_name || "Chưa có gói"}</td>
-                  <td>{p.learner_name}</td>
-                  <td>{p.phone}</td>
-                  <td>
-                    {p.created_at
-                      ? new Date(p.created_at).toLocaleDateString("vi-VN")
-                      : "-"}
-                  </td>
-                  <td>
-                    <span
-                      className={`status-badge ${
-                        p.status === "active"
-                          ? "status-active"
-                          : p.status === "paused"
-                            ? "status-paused"
-                            : "status-expired"
-                      }`}
-                    >
-                      {p.status === "active"
-                        ? "Còn hạn"
-                        : p.status === "paused"
-                          ? "Tạm ngưng"
-                          : "Hết hạn"}
-                    </span>
-                  </td>
-                  <td>{p.status === "paused" ? "-" : p.days_left || "0"}</td>
-                  <td>
-                    {p.price
-                      ? p.price.toLocaleString("vi-VN", {
-                          style: "currency",
-                          currency: "VND",
-                        })
-                      : "-"}
-                  </td>
-                  <td>
-                    <div className="action-buttons">
-                      <button
-                        className="btn-view"
-                        onClick={() =>
-                          navigate(`/admin/purchases/${p.learner_id}`)
-                        }
-                      >
-                        Xem
-                      </button>
+      {/* Content Section */}
+      <div className="purchase-content">
+        {purchases.length === 0 ? (
+          <div className="empty-state-card">
+            <div className="empty-icon"><FiMail /></div>
+            <h3>Không có gói học nào</h3>
+            <p>Chưa có học viên nào đăng ký gói học</p>
+          </div>
+        ) : (
+          <div className="purchase-grid">
+            {purchases.map((p, idx) => (
+              <div key={p.purchase_id} className="purchase-card">
+                <div className="card-header">
+                  <div className="card-index">#{idx + 1}</div>
+                  <div className={`card-status ${
+                    p.days_left > 0
+                      ? "status-active"
+                      : p.status === "paused"
+                        ? "status-paused"
+                        : "status-expired"
+                  }`}>
+                    {p.days_left > 0
+                      ? "Còn hạn"
+                      : p.status === "paused"
+                        ? "Tạm ngưng"
+                        : "Hết hạn"}
+                  </div>
+                </div>
+
+                <div className="card-content">
+                  <div className="package-info">
+                    <h3 className="package-name">{p.package_name || "Chưa có gói"}</h3>
+                    <div className="learner-info">
+                      <span className="learner-name"><FiUser style={{ marginRight: '4px' }} />{p.learner_name}</span>
+                      <span className="learner-phone"><FiPhone style={{ marginRight: '4px' }} />{p.phone}</span>
                     </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+                  </div>
+
+                  <div className="purchase-details">
+                    <div className="detail-row">
+                      <span className="detail-label">Ngày mua:</span>
+                      <span className="detail-value">
+                        {p.created_at
+                          ? new Date(p.created_at).toLocaleDateString("vi-VN")
+                          : "-"}
+                      </span>
+                    </div>
+
+                    <div className="detail-row">
+                      <span className="detail-label">Còn lại:</span>
+                      <span className={`detail-value ${
+                        p.days_left > 0
+                          ? "days-active"
+                          : p.status === "paused"
+                            ? "days-paused"
+                            : "days-expired"
+                      }`}>
+                        {p.status === "paused" ? "-" : `${p.days_left || 0} ngày`}
+                      </span>
+                    </div>
+
+                    <div className="detail-row">
+                      <span className="detail-label">Giá:</span>
+                      <span className="detail-value price">
+                        {p.price
+                          ? p.price.toLocaleString("vi-VN", {
+                              style: "currency",
+                              currency: "VND",
+                            })
+                          : "-"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="card-actions">
+                  <button
+                    className="btn-view-card"
+                    onClick={() =>
+                      navigate(`/admin/purchases/${p.learner_id}`)
+                    }
+                  >
+                    <span className="btn-icon"><FiEye /></span>
+                    Xem chi tiết
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

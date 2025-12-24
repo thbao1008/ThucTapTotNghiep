@@ -1,0 +1,87 @@
+
+@startuml
+' ERD tổng quát các bảng chính
+
+entity "User" as user {
+	*id : UUID
+	email : string
+	password : string
+	name : string
+	role : enum (learner, mentor, admin)
+	created_at : datetime
+}
+
+entity "PracticeSession" as session {
+	*id : UUID
+	user_id : UUID
+	type : enum (speaking, scenario, story, topic)
+	started_at : datetime
+	finished_at : datetime
+	score : float
+	feedback : text
+}
+
+entity "PracticeRound" as round {
+	*id : UUID
+	session_id : UUID
+	prompt : text
+	answer : text
+	ai_score : float
+	ai_feedback : text
+	audio_url : string
+}
+
+entity "Scenario" as scenario {
+	*id : UUID
+	title : string
+	description : text
+	created_by : string   ' AI, hệ thống hoặc user
+	approved : boolean
+}
+
+entity "Topic" as topic {
+	*id : UUID
+	title : string
+	description : text
+	created_by : string   ' AI, mentor, admin
+	approved : boolean
+}
+
+entity "Package" as pkg {
+	*id : UUID
+	name : string
+	price : float
+	duration : int
+	features : json
+}
+
+entity "Transaction" as trans {
+	*id : UUID
+	user_id : UUID
+	package_id : UUID
+	amount : float
+	status : enum
+	created_at : datetime
+}
+
+entity "Notification" as notif {
+	*id : UUID
+	user_id : UUID
+	content : text
+	created_at : datetime
+	read : boolean
+}
+
+' Quan hệ chính
+user ||--o{ session : "1 - N"
+session ||--o{ round : "1 - N"
+user ||--o{ notif : "1 - N"
+user ||--o{ trans : "1 - N"
+pkg ||--o{ trans : "1 - N"
+scenario ||--o{ session : "1 - N (dùng scenario)"
+topic ||--o{ session : "1 - N (dùng topic)"
+
+' AI là hệ thống sinh scenario, topic, prompt, chấm điểm, không lưu bảng riêng
+
+@enduml
+

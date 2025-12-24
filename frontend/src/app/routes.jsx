@@ -91,13 +91,27 @@ export default function AppRoutes() {
       >
         <Route index element={<LearningCatalog />} />
         <Route path="dashboard" element={<LearnerDashboard />} />
-        <Route path="catalog" element={<LearningCatalog />} />
-        <Route path="practice" element={<SpeakingPractice />} />
-        <Route path="challenges" element={<Challenges />} />
-        <Route path="challenges/:id" element={<ChallengeDetail />} />
-        <Route path="feedback" element={<LearnerFeedback />} />
-        <Route path="communicate" element={<CommunicateCenter />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="catalog" element={
+          <LearningCatalog />
+        } />
+        <Route path="practice" element={
+          <SpeakingPractice />
+        } />
+        <Route path="challenges" element={
+          <Challenges />
+        } />
+        <Route path="challenges/:id" element={
+          <ChallengeDetail />
+        } />
+        <Route path="feedback" element={
+          <LearnerFeedback />
+        } />
+        <Route path="communicate" element={
+          <CommunicateCenter />
+        } />
+        <Route path="profile" element={
+          <ProfilePage />
+        } />
         <Route path="*" element={<Navigate to="/learn/dashboard" replace />} />
       </Route>
 
@@ -112,13 +126,27 @@ export default function AppRoutes() {
       >
         <Route index element={<MentorDashboard />} />
         <Route path="dashboard" element={<MentorDashboard />} />
-        <Route path="assessment" element={<AssessmentPanel />} />
-        <Route path="challenge-creator" element={<ChallengeCreator />} />
-        <Route path="schedules" element={<MentorSchedules />} />
-        <Route path="learners" element={<MentorLearners />} />
-        <Route path="resources" element={<MentorResources />} />
-        <Route path="communicate" element={<CommunicateCenter />} />
-        <Route path="profile" element={<ProfilePage />} />
+        <Route path="assessment" element={
+          <AssessmentPanel />
+        } />
+        <Route path="challenge-creator" element={
+          <ChallengeCreator />
+        } />
+        <Route path="schedules" element={
+          <MentorSchedules />
+        } />
+        <Route path="learners" element={
+          <MentorLearners />
+        } />
+        <Route path="resources" element={
+          <MentorResources />
+        } />
+        <Route path="communicate" element={
+          <CommunicateCenter />
+        } />
+        <Route path="profile" element={
+          <ProfilePage />
+        } />
         <Route path="*" element={<Navigate to="/mentor/dashboard" replace />} />
       </Route>
 

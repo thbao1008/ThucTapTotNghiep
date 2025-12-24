@@ -1,0 +1,21 @@
+{
+  "language": "en",
+  "text": " Hello?",
+  "segments": [
+    {
+      "text": " Hello?",
+      "start": 0.031,
+      "end": 1.162,
+      "segment_words": []
+    }
+  ],
+  "words": [
+    {
+      "word": "Hello?",
+      "start": 0.031,
+      "end": 1.183,
+      "score": 0.415,
+      "lang": "en"
+    }
+  ]
+}

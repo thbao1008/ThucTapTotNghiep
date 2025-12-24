@@ -340,8 +340,8 @@ Trả về JSON:
         headers['Authorization'] = authToken;
       }
       
-      // Gọi qua API Gateway thay vì trực tiếp đến AI Service
-      const response = await fetch(`http://localhost:${process.env.API_GATEWAY_PORT || 4000}/api/ai/assistant/conversation`, {
+      // Gọi qua API Gateway với internal endpoint (không cần auth)
+      const response = await fetch(`http://localhost:${process.env.API_GATEWAY_PORT || 4000}/api/ai/internal/assistant/conversation`, {
         method: 'POST',
         headers: headers,
         body: JSON.stringify({

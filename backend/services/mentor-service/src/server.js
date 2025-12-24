@@ -4,6 +4,7 @@ import cors from "cors";
 // Import db first to ensure connection is established
 import "./config/db.js";
 import { authGuard } from "./middleware/authGuard.js";
+import { packageGuard } from "./middleware/packageGuard.js";
 import mentorRoutes from "./routes/mentorRoutes.js";
 import "./queueHandlers.js"; // Register queue processors
 
@@ -17,8 +18,21 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "mentor-service" });
 });
 
+// Middleware to check package for non-dashboard routes
+const conditionalPackageGuard = (req, res, next) => {
+  const isDashboardRoute = req.path.includes('/dashboard/') ||
+                          req.path.includes('/ai/') ||
+                          req.path === '/';
+
+  if (isDashboardRoute) {
+    return next(); // Skip package check for dashboard
+  }
+
+  return packageGuard(req, res, next);
+};
+
 // Routes
-app.use("/mentors", authGuard, mentorRoutes);
+app.use("/mentors", authGuard, conditionalPackageGuard, mentorRoutes);
 
 // Error handler
 app.use((err, req, res, next) => {

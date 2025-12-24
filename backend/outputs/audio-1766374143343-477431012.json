@@ -1,0 +1,21 @@
+{
+  "language": "en",
+  "text": " Okay",
+  "segments": [
+    {
+      "text": " Okay",
+      "start": 0.031,
+      "end": 0.858,
+      "segment_words": []
+    }
+  ],
+  "words": [
+    {
+      "word": "Okay",
+      "start": 0.031,
+      "end": 0.879,
+      "score": 0.636,
+      "lang": "en"
+    }
+  ]
+}

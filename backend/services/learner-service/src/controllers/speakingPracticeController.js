@@ -8,11 +8,12 @@ import fs from "fs";
  * Tạo session mới cho luyện nói
  */
 export async function createPracticeSession(req, res) {
+  let actualLearnerId;
   try {
     const { learner_id, user_id, level } = req.body;
 
     // Nếu có user_id, lookup learner_id
-    let actualLearnerId = learner_id;
+    actualLearnerId = learner_id;
     if (!actualLearnerId && user_id) {
       const learnerRes = await pool.query(
         `SELECT id FROM learners WHERE user_id = $1`,
@@ -718,4 +719,68 @@ export async function getTopRatings(req, res) {
   }
 }
 
+/**
+ * Lấy danh sách rounds cho một session
+ */
+export async function getRoundsForSession(req, res) {
+  try {
+    const { sessionId } = req.params;
+
+    if (!sessionId) {
+      return res.status(400).json({ message: "Session ID is required" });
+    }
+
+    // Query để lấy tất cả rounds của session
+    const roundsQuery = `
+      SELECT 
+        r.id as round_id,
+        r.round_number,
+        r.audio_url as audio_path,
+        r.transcript as transcription,
+        r.score,
+        r.created_at,
+        r.analysis as analysis_data
+      FROM speaking_practice_rounds r
+      WHERE r.session_id = $1
+      ORDER BY r.round_number ASC
+    `;
+
+    const roundsResult = await pool.query(roundsQuery, [sessionId]);
+
+    // Format response
+    const rounds = roundsResult.rows.map(round => {
+      // Parse analysis data to extract feedback and missing_words
+      let feedback = "";
+      let missing_words = [];
+      if (round.analysis_data) {
+        try {
+          const analysis = typeof round.analysis_data === "string" 
+            ? JSON.parse(round.analysis_data) 
+            : round.analysis_data;
+          feedback = analysis?.feedback || "";
+          missing_words = analysis?.missing_words || [];
+        } catch (err) {
+          console.warn("⚠️ Error parsing analysis data for round:", round.round_id, err);
+        }
+      }
+
+      return {
+        round_id: round.round_id,
+        round_number: round.round_number,
+        audio_path: round.audio_path,
+        transcription: round.transcription,
+        score: round.score,
+        feedback: feedback,
+        created_at: round.created_at,
+        analysis_data: round.analysis_data,
+        missing_words: missing_words
+      };
+    });
+
+    res.json({ rounds });
+  } catch (err) {
+    console.error("❌ getRoundsForSession error:", err);
+    res.status(500).json({ message: err.message || "Server error" });
+  }
+}
 

@@ -15,7 +15,7 @@ export async function learnFromChallengeCreation(challengeId, mentorId) {
   try {
     // Lấy thông tin challenge
     const challengeRes = await pool.query(
-      `SELECT c.id, c.title, c.description, c.level, c.type, c.created_at,
+      `SELECT c.id, c.title, c.level, c.type, c.created_at,
               t.mentor_id
        FROM challenges c
        JOIN topics t ON c.topic_id = t.id
@@ -24,7 +24,7 @@ export async function learnFromChallengeCreation(challengeId, mentorId) {
     );
 
     if (challengeRes.rows.length === 0) {
-      console.warn(`[challengeLearningService] Challenge ${challengeId} not found for mentor ${mentorId}`);
+      console.warn(`[challengeLearningService] Challenge ${challengeId} not found for mentor ${mentorId} - challengeLearningService.js:27`);
       return;
     }
 
@@ -56,9 +56,9 @@ export async function learnFromChallengeCreation(challengeId, mentorId) {
       ]
     );
 
-    console.log(`✅ [challengeLearningService] Learned from challenge creation: ${challengeId}`);
+    console.log(`✅ [challengeLearningService] Learned from challenge creation: ${challengeId} - challengeLearningService.js:59`);
   } catch (err) {
-    console.error(`❌ [challengeLearningService] learnFromChallengeCreation error:`, err);
+    console.error(`❌ [challengeLearningService] learnFromChallengeCreation error: - challengeLearningService.js:61`, err);
   }
 }
 
@@ -80,7 +80,7 @@ export async function learnFromLearnerSubmission(submissionId, challengeId, lear
     );
 
     if (submissionRes.rows.length === 0) {
-      console.warn(`[challengeLearningService] Submission ${submissionId} not found`);
+      console.warn(`[challengeLearningService] Submission ${submissionId} not found - challengeLearningService.js:83`);
       return;
     }
 
@@ -112,9 +112,9 @@ export async function learnFromLearnerSubmission(submissionId, challengeId, lear
       ]
     );
 
-    console.log(`✅ [challengeLearningService] Learned from learner submission: ${submissionId}`);
+    console.log(`✅ [challengeLearningService] Learned from learner submission: ${submissionId} - challengeLearningService.js:115`);
   } catch (err) {
-    console.error(`❌ [challengeLearningService] learnFromLearnerSubmission error:`, err);
+    console.error(`❌ [challengeLearningService] learnFromLearnerSubmission error: - challengeLearningService.js:117`, err);
   }
 }
 
@@ -147,7 +147,7 @@ export async function learnFromMentorFeedback(
     );
 
     if (fullDataRes.rows.length === 0) {
-      console.warn(`[challengeLearningService] Full data not found for submission ${submissionId}`);
+      console.warn(`[challengeLearningService] Full data not found for submission ${submissionId} - challengeLearningService.js:150`);
       return;
     }
 
@@ -211,9 +211,9 @@ export async function learnFromMentorFeedback(
     // Gọi AI để phân tích và học
     await analyzeAndLearnFromFeedback(trainingInput, trainingOutput);
 
-    console.log(`✅ [challengeLearningService] Learned from mentor feedback: submission ${submissionId}`);
+    console.log(`✅ [challengeLearningService] Learned from mentor feedback: submission ${submissionId} - challengeLearningService.js:214`);
   } catch (err) {
-    console.error(`❌ [challengeLearningService] learnFromMentorFeedback error:`, err);
+    console.error(`❌ [challengeLearningService] learnFromMentorFeedback error: - challengeLearningService.js:216`, err);
   }
 }
 
@@ -270,10 +270,10 @@ Return JSON format.`;
         [JSON.stringify(analysisData), String(trainingInput.challenge_id)]
       );
     } catch (parseErr) {
-      console.warn(`[challengeLearningService] Failed to parse analysis:`, parseErr);
+      console.warn(`[challengeLearningService] Failed to parse analysis: - challengeLearningService.js:273`, parseErr);
     }
   } catch (err) {
-    console.error(`[challengeLearningService] analyzeAndLearnFromFeedback error:`, err);
+    console.error(`[challengeLearningService] analyzeAndLearnFromFeedback error: - challengeLearningService.js:276`, err);
   }
 }
 
@@ -293,7 +293,7 @@ export async function getTrainingDataForChallengeCreator(limit = 50) {
 
     return res.rows;
   } catch (err) {
-    console.error(`[challengeLearningService] getTrainingDataForChallengeCreator error:`, err);
+    console.error(`[challengeLearningService] getTrainingDataForChallengeCreator error: - challengeLearningService.js:296`, err);
     return [];
   }
 }

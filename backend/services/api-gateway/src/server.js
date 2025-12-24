@@ -11,6 +11,29 @@ import fs from "fs";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
+// Track logged errors to prevent spam
+const loggedErrors = new Set();
+const errorLogTimestamps = new Map();
+
+// Helper function to log errors with throttling
+function logProxyError(errorKey, message, ...args) {
+  const now = Date.now();
+  const lastLogTime = errorLogTimestamps.get(errorKey) || 0;
+  
+  // Only log if we haven't logged this error in the last 30 seconds
+  if (now - lastLogTime > 30000) {
+    console.error(message, ...args);
+    errorLogTimestamps.set(errorKey, now);
+    
+    // Clean up old timestamps (older than 5 minutes)
+    for (const [key, timestamp] of errorLogTimestamps.entries()) {
+      if (now - timestamp > 300000) {
+        errorLogTimestamps.delete(key);
+      }
+    }
+  }
+}
+
 // Load .env.docker if DOCKER=true, otherwise use default dotenv
 if (process.env.DOCKER === "true") {
   const backendRoot = path.resolve(__dirname, "..", "..", "..", "..");
@@ -118,7 +141,7 @@ app.use("/uploads", createProxyMiddleware({
     }
   },
   onError: (err, req, res) => {
-    console.error(`[API Gateway] Proxy error for ${req.url}:`, err.message);
+    logProxyError(`uploads_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
     if (!res.headersSent) {
       if (err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
         res.status(503).json({ 
@@ -169,7 +192,7 @@ app.use("/api/users", createProxyMiddleware({
     proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
   },
   onError: (err, req, res) => {
-    console.error(`[API Gateway] Proxy error for ${req.url}:`, err.message);
+    logProxyError(`users_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
     if (!res.headersSent) {
       if (err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
         res.status(503).json({ 
@@ -219,7 +242,7 @@ app.use("/api/auth", createProxyMiddleware({
     }
   },
   onError: (err, req, res) => {
-    console.error(`[API Gateway] Proxy error for ${req.url}:`, err.message);
+    logProxyError(`auth_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
     if (!res.headersSent) {
       // Check error type
       if (err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
@@ -275,7 +298,7 @@ app.use("/api/notifications", createProxyMiddleware({
     proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/notifications:", err.message);
+    logProxyError(`notifications_${err.code}`, "Proxy error for /api/notifications:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến Notification Service.",
@@ -314,7 +337,7 @@ app.use("/api/community", createProxyMiddleware({
     proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/community:", err.message);
+    logProxyError(`community_${err.code}`, "Proxy error for /api/community:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến Community Service.",
@@ -347,7 +370,7 @@ app.use("/api/packages", createProxyMiddleware({
     proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/packages:", err.message);
+    logProxyError(`packages_${err.code}`, "Proxy error for /api/packages:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến Package Service.",
@@ -408,7 +431,7 @@ app.use("/api/mentors", createProxyMiddleware({
     // http-proxy-middleware automatically forwards the body stream for multipart/form-data
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/mentors:", err.message);
+    logProxyError(`mentors_${err.code}`, "Proxy error for /api/mentors:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến Mentor Service.",
@@ -435,7 +458,7 @@ app.use("/api/challenges", createProxyMiddleware({
     }
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/challenges:", err.message);
+    logProxyError(`challenges_${err.code}`, "Proxy error for /api/challenges:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến Learner Service.",
@@ -485,7 +508,7 @@ app.use("/api/learners", createProxyMiddleware({
     }
   },
   onError: (err, req, res) => {
-    console.error(`[API Gateway] Proxy error for /api/learners${req.url}:`, err.message, err.code);
+    logProxyError(`learners_${err.code}`, `[API Gateway] Proxy error for /api/learners${req.url}:`, err.message, err.code);
     if (!res.headersSent) {
       // Handle socket hang up - connection closed unexpectedly
       if (err.code === 'ECONNRESET' || err.message?.includes('socket hang up')) {
@@ -542,7 +565,7 @@ app.use("/api/admin", createProxyMiddleware({
     proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/admin:", err.message);
+    logProxyError(`admin_${err.code}`, "Proxy error for /api/admin:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến Admin Service.",
@@ -581,7 +604,7 @@ app.use("/api/uploads", createProxyMiddleware({
     // Only log errors (handled in onError)
   },
   onError: (err, req, res) => {
-    console.error(`[API Gateway] Proxy error for ${req.url}:`, err.message);
+    logProxyError(`api_uploads_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
     if (!res.headersSent) {
       if (err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
         res.status(503).json({ 
@@ -623,7 +646,7 @@ app.use("/api/ai", createProxyMiddleware({
     proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
   },
   onError: (err, req, res) => {
-    console.error("Proxy error for /api/ai:", err.message);
+    logProxyError(`ai_${err.code}`, "Proxy error for /api/ai:", err.message);
     if (!res.headersSent) {
       res.status(502).json({ 
         message: "Không thể kết nối đến AI Service.",
