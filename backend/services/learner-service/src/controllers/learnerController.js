@@ -145,59 +145,17 @@ export async function getMentorByLearnerId(req, res) {
 }
 
 export async function getLearnerByUserId(req, res) {
-  // Set timeout cho request (10 giây)
-  const timeout = setTimeout(() => {
-    if (!res.headersSent) {
-      res.status(504).json({ 
-        message: "Request timeout. Learner service may be unavailable.",
-        learner: null
-      });
-    }
-  }, 10000); // 10 giây timeout
-
   try {
     const userId = req.params.userId;
-    if (!userId) {
-      clearTimeout(timeout);
-      return res.status(400).json({ message: "Missing userId" });
-    }
+    if (!userId) return res.status(400).json({ message: "Missing userId" });
 
-    console.log(`[Learner Service] getLearnerByUserId called for userId: ${userId}`);
-    const startTime = Date.now();
-    
-    const learner = await Promise.race([
-      learnerService.getLearnerByUserIdService(userId),
-      new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Database query timeout')), 8000)
-      )
-    ]);
-    
-    clearTimeout(timeout);
-    const duration = Date.now() - startTime;
-    console.log(`[Learner Service] getLearnerByUserId completed in ${duration}ms for userId: ${userId}`);
-    
-    if (!learner) {
-      return res.status(404).json({ message: "Learner not found", learner: null });
-    }
+    const learner = await learnerService.getLearnerByUserIdService(userId);
+    if (!learner) return res.status(404).json({ message: "Learner not found" });
 
     return res.json({ learner });
   } catch (err) {
-    clearTimeout(timeout);
-    console.error("Error learnerController.getLearnerByUserId:", err);
-    
-    if (err.message === 'Database query timeout') {
-      return res.status(504).json({ 
-        message: "Database query timeout. Please try again.",
-        learner: null
-      });
-    }
-    
-    if (!res.headersSent) {
-      return res.status(500).json({ 
-        message: "Server error",
-        learner: null
-      });
-    }
+    console.error("Error learnerController.getLearnerByUserId: - learnerController.js:140", err);
+    return res.status(500).json({ message: "Server error" });
   }
 }
 
