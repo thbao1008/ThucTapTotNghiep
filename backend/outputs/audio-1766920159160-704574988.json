@@ -1,0 +1,260 @@
+{
+  "language": "en",
+  "text": " Can you describe your morning road time using simple sentences? Morning road time using simple sentences. Simple sentences.",
+  "segments": [
+    {
+      "text": " Can you describe your morning road time using simple sentences? Morning road time using simple sentences. Simple sentences.",
+      "start": 0.689,
+      "end": 17.716,
+      "segment_words": [
+        {
+          "word": "Can",
+          "start": 0.689,
+          "end": 0.91,
+          "score": 0.784,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 0.95,
+          "end": 1.11,
+          "score": 0.937,
+          "lang": "en"
+        },
+        {
+          "word": "describe",
+          "start": 1.13,
+          "end": 1.792,
+          "score": 0.658,
+          "lang": "en"
+        },
+        {
+          "word": "your",
+          "start": 2.975,
+          "end": 3.276,
+          "score": 0.536,
+          "lang": "en"
+        },
+        {
+          "word": "morning",
+          "start": 3.336,
+          "end": 3.757,
+          "score": 0.731,
+          "lang": "en"
+        },
+        {
+          "word": "road",
+          "start": 3.838,
+          "end": 4.5,
+          "score": 0.789,
+          "lang": "en"
+        },
+        {
+          "word": "time",
+          "start": 4.62,
+          "end": 4.76,
+          "score": 0.259,
+          "lang": "en"
+        },
+        {
+          "word": "using",
+          "start": 4.78,
+          "end": 5.061,
+          "score": 0.614,
+          "lang": "en"
+        },
+        {
+          "word": "simple",
+          "start": 5.101,
+          "end": 5.583,
+          "score": 0.682,
+          "lang": "en"
+        },
+        {
+          "word": "sentences?",
+          "start": 5.663,
+          "end": 6.445,
+          "score": 0.798,
+          "lang": "en"
+        },
+        {
+          "word": "Morning",
+          "start": 8.029,
+          "end": 8.491,
+          "score": 0.84,
+          "lang": "en"
+        },
+        {
+          "word": "road",
+          "start": 9.834,
+          "end": 10.075,
+          "score": 0.538,
+          "lang": "en"
+        },
+        {
+          "word": "time",
+          "start": 10.135,
+          "end": 10.536,
+          "score": 0.558,
+          "lang": "en"
+        },
+        {
+          "word": "using",
+          "start": 11.659,
+          "end": 12.04,
+          "score": 0.669,
+          "lang": "en"
+        },
+        {
+          "word": "simple",
+          "start": 12.1,
+          "end": 12.562,
+          "score": 0.573,
+          "lang": "en"
+        },
+        {
+          "word": "sentences.",
+          "start": 12.602,
+          "end": 14.347,
+          "score": 0.841,
+          "lang": "en"
+        },
+        {
+          "word": "Simple",
+          "start": 14.367,
+          "end": 14.828,
+          "score": 0.541,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "Can",
+      "start": 0.689,
+      "end": 0.91,
+      "score": 0.784,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 0.95,
+      "end": 1.11,
+      "score": 0.937,
+      "lang": "en"
+    },
+    {
+      "word": "describe",
+      "start": 1.13,
+      "end": 1.792,
+      "score": 0.658,
+      "lang": "en"
+    },
+    {
+      "word": "your",
+      "start": 2.975,
+      "end": 3.276,
+      "score": 0.536,
+      "lang": "en"
+    },
+    {
+      "word": "morning",
+      "start": 3.336,
+      "end": 3.757,
+      "score": 0.731,
+      "lang": "en"
+    },
+    {
+      "word": "road",
+      "start": 3.838,
+      "end": 4.5,
+      "score": 0.789,
+      "lang": "en"
+    },
+    {
+      "word": "time",
+      "start": 4.62,
+      "end": 4.76,
+      "score": 0.259,
+      "lang": "en"
+    },
+    {
+      "word": "using",
+      "start": 4.78,
+      "end": 5.061,
+      "score": 0.614,
+      "lang": "en"
+    },
+    {
+      "word": "simple",
+      "start": 5.101,
+      "end": 5.583,
+      "score": 0.682,
+      "lang": "en"
+    },
+    {
+      "word": "sentences?",
+      "start": 5.663,
+      "end": 6.445,
+      "score": 0.798,
+      "lang": "en"
+    },
+    {
+      "word": "Morning",
+      "start": 8.029,
+      "end": 8.491,
+      "score": 0.84,
+      "lang": "en"
+    },
+    {
+      "word": "road",
+      "start": 9.834,
+      "end": 10.075,
+      "score": 0.538,
+      "lang": "en"
+    },
+    {
+      "word": "time",
+      "start": 10.135,
+      "end": 10.536,
+      "score": 0.558,
+      "lang": "en"
+    },
+    {
+      "word": "using",
+      "start": 11.659,
+      "end": 12.04,
+      "score": 0.669,
+      "lang": "en"
+    },
+    {
+      "word": "simple",
+      "start": 12.1,
+      "end": 12.562,
+      "score": 0.573,
+      "lang": "en"
+    },
+    {
+      "word": "sentences.",
+      "start": 12.602,
+      "end": 14.347,
+      "score": 0.841,
+      "lang": "en"
+    },
+    {
+      "word": "Simple",
+      "start": 14.367,
+      "end": 14.828,
+      "score": 0.541,
+      "lang": "en"
+    },
+    {
+      "word": "sentences.",
+      "start": 14.868,
+      "end": 17.736,
+      "score": 0.817,
+      "lang": "en"
+    }
+  ]
+}

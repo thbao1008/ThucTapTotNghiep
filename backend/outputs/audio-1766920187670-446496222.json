@@ -1,0 +1,274 @@
+{
+  "language": "en",
+  "text": " If I could, I can buy chokobai chicken for cattle. I made a tunic with this called chokobai chicken.",
+  "segments": [
+    {
+      "text": " If I could, I can buy chokobai chicken for cattle. I made a tunic with this called chokobai chicken.",
+      "start": 10.223,
+      "end": 21.479,
+      "segment_words": [
+        {
+          "word": "If",
+          "start": 10.223,
+          "end": 10.444,
+          "score": 0.78,
+          "lang": "en"
+        },
+        {
+          "word": "I",
+          "start": 10.564,
+          "end": 10.604,
+          "score": 0.975,
+          "lang": "en"
+        },
+        {
+          "word": "could,",
+          "start": 10.705,
+          "end": 10.965,
+          "score": 0.935,
+          "lang": "en"
+        },
+        {
+          "word": "I",
+          "start": 10.985,
+          "end": 11.006,
+          "score": 0.991,
+          "lang": "en"
+        },
+        {
+          "word": "can",
+          "start": 11.427,
+          "end": 12.892,
+          "score": 0.818,
+          "lang": "en"
+        },
+        {
+          "word": "buy",
+          "start": 12.912,
+          "end": 13.333,
+          "score": 0.84,
+          "lang": "en"
+        },
+        {
+          "word": "chokobai",
+          "start": 13.634,
+          "end": 14.356,
+          "score": 0.775,
+          "lang": "en"
+        },
+        {
+          "word": "chicken",
+          "start": 14.416,
+          "end": 14.878,
+          "score": 0.668,
+          "lang": "en"
+        },
+        {
+          "word": "for",
+          "start": 16.202,
+          "end": 16.383,
+          "score": 0.502,
+          "lang": "en"
+        },
+        {
+          "word": "cattle.",
+          "start": 16.403,
+          "end": 16.824,
+          "score": 0.762,
+          "lang": "en"
+        },
+        {
+          "word": "I",
+          "start": 17.587,
+          "end": 17.667,
+          "score": 0.948,
+          "lang": "en"
+        },
+        {
+          "word": "made",
+          "start": 17.767,
+          "end": 17.968,
+          "score": 0.718,
+          "lang": "en"
+        },
+        {
+          "word": "a",
+          "start": 18.128,
+          "end": 18.188,
+          "score": 0.951,
+          "lang": "en"
+        },
+        {
+          "word": "tunic",
+          "start": 18.309,
+          "end": 18.871,
+          "score": 0.778,
+          "lang": "en"
+        },
+        {
+          "word": "with",
+          "start": 18.891,
+          "end": 18.971,
+          "score": 0.222,
+          "lang": "en"
+        },
+        {
+          "word": "this",
+          "start": 19.051,
+          "end": 19.272,
+          "score": 0.85,
+          "lang": "en"
+        },
+        {
+          "word": "called",
+          "start": 19.673,
+          "end": 20.075,
+          "score": 0.688,
+          "lang": "en"
+        },
+        {
+          "word": "chokobai",
+          "start": 20.235,
+          "end": 21.318,
+          "score": 0.569,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "If",
+      "start": 10.223,
+      "end": 10.444,
+      "score": 0.78,
+      "lang": "en"
+    },
+    {
+      "word": "I",
+      "start": 10.564,
+      "end": 10.604,
+      "score": 0.975,
+      "lang": "en"
+    },
+    {
+      "word": "could,",
+      "start": 10.705,
+      "end": 10.965,
+      "score": 0.935,
+      "lang": "en"
+    },
+    {
+      "word": "I",
+      "start": 10.985,
+      "end": 11.006,
+      "score": 0.991,
+      "lang": "en"
+    },
+    {
+      "word": "can",
+      "start": 11.427,
+      "end": 12.892,
+      "score": 0.818,
+      "lang": "en"
+    },
+    {
+      "word": "buy",
+      "start": 12.912,
+      "end": 13.333,
+      "score": 0.84,
+      "lang": "en"
+    },
+    {
+      "word": "chokobai",
+      "start": 13.634,
+      "end": 14.356,
+      "score": 0.775,
+      "lang": "en"
+    },
+    {
+      "word": "chicken",
+      "start": 14.416,
+      "end": 14.878,
+      "score": 0.668,
+      "lang": "en"
+    },
+    {
+      "word": "for",
+      "start": 16.202,
+      "end": 16.383,
+      "score": 0.502,
+      "lang": "en"
+    },
+    {
+      "word": "cattle.",
+      "start": 16.403,
+      "end": 16.824,
+      "score": 0.762,
+      "lang": "en"
+    },
+    {
+      "word": "I",
+      "start": 17.587,
+      "end": 17.667,
+      "score": 0.948,
+      "lang": "en"
+    },
+    {
+      "word": "made",
+      "start": 17.767,
+      "end": 17.968,
+      "score": 0.718,
+      "lang": "en"
+    },
+    {
+      "word": "a",
+      "start": 18.128,
+      "end": 18.188,
+      "score": 0.951,
+      "lang": "en"
+    },
+    {
+      "word": "tunic",
+      "start": 18.309,
+      "end": 18.871,
+      "score": 0.778,
+      "lang": "en"
+    },
+    {
+      "word": "with",
+      "start": 18.891,
+      "end": 18.971,
+      "score": 0.222,
+      "lang": "en"
+    },
+    {
+      "word": "this",
+      "start": 19.051,
+      "end": 19.272,
+      "score": 0.85,
+      "lang": "en"
+    },
+    {
+      "word": "called",
+      "start": 19.673,
+      "end": 20.075,
+      "score": 0.688,
+      "lang": "en"
+    },
+    {
+      "word": "chokobai",
+      "start": 20.235,
+      "end": 21.318,
+      "score": 0.569,
+      "lang": "en"
+    },
+    {
+      "word": "chicken.",
+      "start": 21.339,
+      "end": 21.499,
+      "score": 0.121,
+      "lang": "en"
+    }
+  ]
+}

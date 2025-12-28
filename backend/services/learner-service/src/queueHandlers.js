@@ -10,17 +10,14 @@ import { fileURLToPath } from "url";
 import pool from "./config/db.js";
 
 /**
- * Tìm project root (đi lên từ learner-service/src đến root)
+ * Tìm project root (đi lên từ learner-service/src đến backend)
  */
 function getProjectRoot() {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
   // __dirname = backend/services/learner-service/src
-  // Go up 4 levels: src -> learner-service -> services -> backend
-  // .. -> learner-service
-  // .. -> services
-  // .. -> backend ✅
-  return path.resolve(__dirname, "..", "..", "..", "..");
+  // Go up 3 levels: src -> learner-service -> services -> backend
+  return path.resolve(__dirname, "..", "..", "..");
 }
 
 function audioUrlToLocalPath(audioUrl) {
@@ -150,8 +147,15 @@ registerProcessor("analyzeSubmission", async (job) => {
 
 // Queue handler để xử lý speaking round (transcription + AI analysis)
 registerProcessor("processSpeakingRound", async (job) => {
-  const { roundId, sessionId, audioUrl, prompt, level, time_taken } = job.data;
+  console.log("🚀 QUEUE HANDLER STARTED for speaking round");
+  const { roundId, sessionId, audioUrl, prompt, level, time_taken, webSpeechTranscript, webSpeechHighlights: originalWebSpeechHighlights } = job.data;
+  let webSpeechHighlights = originalWebSpeechHighlights; // Mutable copy
   console.log("🔄 Processing speaking round:", roundId);
+  console.log("🎤 Web Speech data received:", {
+    hasTranscript: !!webSpeechTranscript,
+    highlightsLength: webSpeechHighlights ? webSpeechHighlights.length : 0,
+    highlights: webSpeechHighlights
+  });
 
   try {
     // Transcribe audio
@@ -162,16 +166,66 @@ registerProcessor("processSpeakingRound", async (job) => {
 
     let transcript = null;
     if (fs.existsSync(localPath)) {
+      console.log(`📁 Audio file exists: ${localPath}`);
       try {
+        console.log(`🎙️ Starting WhisperX transcription with model medium...`);
         const { json: transcriptJson } = await runWhisperX(localPath, {
-          model: "base",
+          model: "medium",
+          language: "en",
           computeType: "float32"
         });
         transcript = transcriptJson;
+        console.log(`✅ WhisperX transcription completed: ${transcript?.text?.substring(0, 100)}...`);
       } catch (err) {
-        console.error("❌ Transcription error:", err);
-        return;
+        console.error("❌ Transcription error:", err.message);
+        console.error("❌ Error stack:", err.stack);
+        console.error("❌ Trying with base model...");
+        // Fallback to base model
+        try {
+          const { json: transcriptJson } = await runWhisperX(localPath, {
+            model: "base",
+            computeType: "float32"
+          });
+          transcript = transcriptJson;
+          console.log(`✅ WhisperX base model transcription completed: ${transcript?.text?.substring(0, 100)}...`);
+        } catch (err2) {
+          console.error("❌ Base model also failed:", err2.message);
+          // Không return, tiếp tục với transcript = null
+        }
       }
+    } else {
+      console.error(`❌ Audio file not found: ${localPath}`);
+    }
+
+    // Nếu không có Web Speech highlights, tạo từ WhisperX transcript
+    if ((!webSpeechHighlights || !Array.isArray(webSpeechHighlights) || webSpeechHighlights.length === 0) && transcript && transcript.text) {
+      console.log(`🔄 Generating highlights from WhisperX transcript...`);
+      const transcriptText = transcript.text;
+      const transcriptWords = transcriptText.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+      const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
+      
+      // Tạo highlights bằng cách match transcript words với expected words
+      const generatedHighlights = [];
+      expectedWords.forEach((expectedWord, idx) => {
+        const cleanExpected = expectedWord.replace(/[.,!?;:]/g, "").trim();
+        if (!cleanExpected) return;
+        
+        const matched = transcriptWords.some(transcriptWord => {
+          const cleanTranscript = transcriptWord.replace(/[.,!?;:]/g, "").trim();
+          if (!cleanTranscript) return false;
+          if (cleanTranscript === cleanExpected) return true;
+          if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
+          if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
+          return false;
+        });
+        
+        if (matched) {
+          generatedHighlights.push(idx);
+        }
+      });
+      
+      webSpeechHighlights = generatedHighlights;
+      console.log(`✅ Generated ${generatedHighlights.length} highlights from WhisperX:`, generatedHighlights);
     }
 
     // Analyze với AI Service
@@ -181,7 +235,75 @@ registerProcessor("processSpeakingRound", async (job) => {
     let errors = [];
     let correctedText = "";
 
-    if (transcript) {
+    // ƯU TIÊN 1: Nếu có Web Speech highlights, dùng chúng để tính điểm ngay
+    if (webSpeechHighlights && Array.isArray(webSpeechHighlights) && webSpeechHighlights.length > 0) {
+      console.log(`🎯 Using Web Speech highlights for scoring: ${webSpeechHighlights.length} matched words`);
+      console.log(`🔍 Highlights data:`, webSpeechHighlights);
+      console.log(`🔍 Highlights types:`, webSpeechHighlights.map(h => typeof h));
+      
+      // Convert to numbers if they're strings
+      const numericHighlights = webSpeechHighlights.map(h => typeof h === 'string' ? parseInt(h, 10) : h);
+      console.log(`🔢 Numeric highlights:`, numericHighlights);
+      
+      const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
+      const matchedWords = expectedWords.filter((_, idx) => numericHighlights.includes(idx));
+      const missingWords = expectedWords.filter((_, idx) => !numericHighlights.includes(idx));
+      
+      // Tính điểm dựa trên highlights từ Web Speech
+      const scoreFromHighlights = Math.round((matchedWords.length / expectedWords.length) * 100);
+      
+      score = scoreFromHighlights;
+      feedback = scoreFromHighlights > 0 
+        ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
+        : "Bạn chưa nói đúng từ nào. Hãy nghe lại và nói theo prompt.";
+      analysis = {
+        score: scoreFromHighlights,
+        feedback: feedback,
+        missing_words: missingWords,
+        errors: [],
+        corrected_text: prompt
+      };
+      
+      console.log(`✅ Web Speech scoring: ${scoreFromHighlights}/100, matched=${matchedWords.length}/${expectedWords.length}`);
+    } else if (webSpeechTranscript && webSpeechTranscript.trim()) {
+      // Fallback: Dùng Web Speech transcript để tính điểm
+      console.log(`🎤 Using Web Speech transcript for scoring: "${webSpeechTranscript.substring(0, 100)}..."`);
+      
+      const transcriptWords = webSpeechTranscript.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+      const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
+      
+      // Tính số từ match từ Web Speech transcript
+      const matchedWords = expectedWords.filter(ew => {
+        const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
+        if (!cleanExpected) return false;
+        return transcriptWords.some(tw => {
+          const cleanTranscript = tw.replace(/[.,!?;:]/g, "").trim();
+          if (!cleanTranscript) return false;
+          if (cleanTranscript === cleanExpected) return true;
+          if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
+          if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
+          return false;
+        });
+      });
+      
+      // Tính điểm dựa trên số từ đúng
+      const scoreFromTranscript = Math.round((matchedWords.length / expectedWords.length) * 100);
+      const missingWords = expectedWords.filter(ew => !matchedWords.includes(ew));
+      
+      score = scoreFromTranscript;
+      feedback = scoreFromTranscript > 0 
+        ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
+        : "Không thể phân tích chính xác. Vui lòng thử lại.";
+      analysis = {
+        score: scoreFromTranscript,
+        feedback: feedback,
+        missing_words: missingWords,
+        errors: [],
+        corrected_text: prompt
+      };
+      
+      console.log(`✅ Web Speech transcript scoring: ${scoreFromTranscript}/100, matched=${matchedWords.length}/${expectedWords.length}`);
+    } else if (transcript) {
       const transcriptText = transcript.text || (transcript.segments || []).map(s => s.text || "").join(" ");
 
       try {
@@ -202,15 +324,15 @@ registerProcessor("processSpeakingRound", async (job) => {
         errors = analysis.errors || [];
         correctedText = analysis.corrected_text || "";
         
-        console.log(`✅ Queue handler: round ${roundId} analyzed, score=${score}, missing_words=${analysis?.missing_words?.length || 0}`);
+        console.log(`✅ WhisperX analyzed, score=${score}, missing_words=${analysis?.missing_words?.length || 0}`);
       } catch (err) {
         console.error("❌ AI analysis error in queue handler:", err);
         console.error("❌ Error stack:", err.stack);
         
-        // Fallback: Tính điểm dựa trên transcript matching nếu có
+        // Fallback cuối: Tính điểm dựa trên transcript matching
         if (transcriptText && transcriptText.trim()) {
           const transcriptWords = transcriptText.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-          const expectedWords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+          const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
           
           // Tính số từ match
           const matchedWords = expectedWords.filter(ew => {
@@ -245,7 +367,7 @@ registerProcessor("processSpeakingRound", async (job) => {
             corrected_text: prompt
           };
           
-          console.log(`⚠️ Using fallback scoring: score=${fallbackScore}, matched=${matchedWords.length}/${expectedWords.length}`);
+          console.log(`⚠️ Using transcript fallback scoring: score=${fallbackScore}, matched=${matchedWords.length}/${expectedWords.length}`);
         } else {
           // Không có transcript
           feedback = "Bạn chưa nói gì. Hãy thử lại và nói to, rõ ràng.";
@@ -260,15 +382,77 @@ registerProcessor("processSpeakingRound", async (job) => {
         }
       }
     } else {
-      score = 0;
-      feedback = "Bạn chưa nói gì. Hãy thử lại và nói to, rõ ràng.";
-      analysis = {
-        score: 0,
-        feedback: feedback,
-        missing_words: prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0),
-        errors: [],
-        corrected_text: prompt
-      };
+      // Không có transcript từ WhisperX, kiểm tra Web Speech data
+      if (webSpeechHighlights && Array.isArray(webSpeechHighlights) && webSpeechHighlights.length > 0) {
+        console.log(`🎯 Using Web Speech highlights (no WhisperX transcript): ${webSpeechHighlights.length} matched words`);
+        
+        const expectedWords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+        const matchedWords = expectedWords.filter((_, idx) => webSpeechHighlights.includes(idx));
+        const missingWords = expectedWords.filter((_, idx) => !webSpeechHighlights.includes(idx));
+        
+        // Tính điểm dựa trên highlights từ Web Speech
+        const scoreFromHighlights = Math.round((matchedWords.length / expectedWords.length) * 100);
+        
+        score = scoreFromHighlights;
+        feedback = scoreFromHighlights > 0 
+          ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
+          : "Bạn chưa nói đúng từ nào. Hãy nghe lại và nói theo prompt.";
+        analysis = {
+          score: scoreFromHighlights,
+          feedback: feedback,
+          missing_words: missingWords,
+          errors: [],
+          corrected_text: prompt
+        };
+        
+        console.log(`✅ Web Speech scoring (no transcript): ${scoreFromHighlights}/100, matched=${matchedWords.length}/${expectedWords.length}`);
+      } else if (webSpeechTranscript && webSpeechTranscript.trim()) {
+        // Fallback: Dùng Web Speech transcript
+        console.log(`🎤 Using Web Speech transcript (no WhisperX): "${webSpeechTranscript.substring(0, 100)}..."`);
+        
+        const transcriptWords = webSpeechTranscript.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+        const expectedWords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0);
+        
+        const matchedWords = expectedWords.filter(ew => {
+          const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
+          if (!cleanExpected) return false;
+          return transcriptWords.some(tw => {
+            const cleanTranscript = tw.replace(/[.,!?;:]/g, "").trim();
+            if (!cleanTranscript) return false;
+            if (cleanTranscript === cleanExpected) return true;
+            if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
+            if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
+            return false;
+          });
+        });
+        
+        const scoreFromTranscript = Math.round((matchedWords.length / expectedWords.length) * 100);
+        const missingWords = expectedWords.filter(ew => !matchedWords.includes(ew));
+        
+        score = scoreFromTranscript;
+        feedback = scoreFromTranscript > 0 
+          ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
+          : "Không thể phân tích chính xác. Vui lòng thử lại.";
+        analysis = {
+          score: scoreFromTranscript,
+          feedback: feedback,
+          missing_words: missingWords,
+          errors: [],
+          corrected_text: prompt
+        };
+        
+        console.log(`✅ Web Speech transcript scoring (no WhisperX): ${scoreFromTranscript}/100, matched=${matchedWords.length}/${expectedWords.length}`);
+      } else {
+        score = 0;
+        feedback = "Bạn chưa nói gì. Hãy thử lại và nói to, rõ ràng.";
+        analysis = {
+          score: 0,
+          feedback: feedback,
+          missing_words: prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0),
+          errors: [],
+          corrected_text: prompt
+        };
+      }
     }
 
     // Build word_analysis từ transcript
@@ -284,6 +468,7 @@ registerProcessor("processSpeakingRound", async (job) => {
     }
 
     // Cập nhật database với kết quả (bao gồm missing_words để highlight từ sai)
+    console.log(`📊 Final score before DB update: ${score}, analysis score: ${analysis?.score}`);
     try {
       await pool.query(
         `UPDATE speaking_practice_rounds 

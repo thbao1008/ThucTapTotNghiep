@@ -1,0 +1,92 @@
+{
+  "language": "en",
+  "text": " What unusual sounds do you hear?",
+  "segments": [
+    {
+      "text": " What unusual sounds do you hear?",
+      "start": 1.988,
+      "end": 12.67,
+      "segment_words": [
+        {
+          "word": "What",
+          "start": 1.988,
+          "end": 2.55,
+          "score": 0.685,
+          "lang": "en"
+        },
+        {
+          "word": "unusual",
+          "start": 3.253,
+          "end": 3.916,
+          "score": 0.862,
+          "lang": "en"
+        },
+        {
+          "word": "sounds",
+          "start": 4.237,
+          "end": 6.988,
+          "score": 0.718,
+          "lang": "en"
+        },
+        {
+          "word": "do",
+          "start": 8.032,
+          "end": 8.192,
+          "score": 0.854,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 8.212,
+          "end": 8.333,
+          "score": 0.86,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "What",
+      "start": 1.988,
+      "end": 2.55,
+      "score": 0.685,
+      "lang": "en"
+    },
+    {
+      "word": "unusual",
+      "start": 3.253,
+      "end": 3.916,
+      "score": 0.862,
+      "lang": "en"
+    },
+    {
+      "word": "sounds",
+      "start": 4.237,
+      "end": 6.988,
+      "score": 0.718,
+      "lang": "en"
+    },
+    {
+      "word": "do",
+      "start": 8.032,
+      "end": 8.192,
+      "score": 0.854,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 8.212,
+      "end": 8.333,
+      "score": 0.86,
+      "lang": "en"
+    },
+    {
+      "word": "hear?",
+      "start": 8.393,
+      "end": 12.69,
+      "score": 0.775,
+      "lang": "en"
+    }
+  ]
+}

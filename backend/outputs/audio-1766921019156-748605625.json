@@ -1,0 +1,106 @@
+{
+  "language": "en",
+  "text": " What sound do you hear right now?",
+  "segments": [
+    {
+      "text": " What sound do you hear right now?",
+      "start": 0.031,
+      "end": 9.683,
+      "segment_words": [
+        {
+          "word": "What",
+          "start": 0.031,
+          "end": 1.197,
+          "score": 0.908,
+          "lang": "en"
+        },
+        {
+          "word": "sound",
+          "start": 1.217,
+          "end": 2.444,
+          "score": 0.727,
+          "lang": "en"
+        },
+        {
+          "word": "do",
+          "start": 3.429,
+          "end": 3.57,
+          "score": 0.698,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 3.61,
+          "end": 3.731,
+          "score": 0.968,
+          "lang": "en"
+        },
+        {
+          "word": "hear",
+          "start": 3.771,
+          "end": 4.033,
+          "score": 0.727,
+          "lang": "en"
+        },
+        {
+          "word": "right",
+          "start": 4.073,
+          "end": 5.702,
+          "score": 0.834,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "What",
+      "start": 0.031,
+      "end": 1.197,
+      "score": 0.908,
+      "lang": "en"
+    },
+    {
+      "word": "sound",
+      "start": 1.217,
+      "end": 2.444,
+      "score": 0.727,
+      "lang": "en"
+    },
+    {
+      "word": "do",
+      "start": 3.429,
+      "end": 3.57,
+      "score": 0.698,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 3.61,
+      "end": 3.731,
+      "score": 0.968,
+      "lang": "en"
+    },
+    {
+      "word": "hear",
+      "start": 3.771,
+      "end": 4.033,
+      "score": 0.727,
+      "lang": "en"
+    },
+    {
+      "word": "right",
+      "start": 4.073,
+      "end": 5.702,
+      "score": 0.834,
+      "lang": "en"
+    },
+    {
+      "word": "now?",
+      "start": 5.903,
+      "end": 9.703,
+      "score": 0.82,
+      "lang": "en"
+    }
+  ]
+}

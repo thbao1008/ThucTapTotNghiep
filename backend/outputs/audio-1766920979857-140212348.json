@@ -1,0 +1,176 @@
+{
+  "language": "en",
+  "text": " What is the most expensive food you like to eat and why?",
+  "segments": [
+    {
+      "text": " What is the most expensive food you like to eat and why?",
+      "start": 4.013,
+      "end": 17.851,
+      "segment_words": [
+        {
+          "word": "What",
+          "start": 4.013,
+          "end": 4.375,
+          "score": 0.505,
+          "lang": "en"
+        },
+        {
+          "word": "is",
+          "start": 4.555,
+          "end": 4.997,
+          "score": 0.892,
+          "lang": "en"
+        },
+        {
+          "word": "the",
+          "start": 7.327,
+          "end": 7.467,
+          "score": 0.774,
+          "lang": "en"
+        },
+        {
+          "word": "most",
+          "start": 7.648,
+          "end": 9.315,
+          "score": 0.706,
+          "lang": "en"
+        },
+        {
+          "word": "expensive",
+          "start": 9.516,
+          "end": 11.304,
+          "score": 0.772,
+          "lang": "en"
+        },
+        {
+          "word": "food",
+          "start": 11.344,
+          "end": 11.545,
+          "score": 0.578,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 11.565,
+          "end": 11.705,
+          "score": 0.689,
+          "lang": "en"
+        },
+        {
+          "word": "like",
+          "start": 11.765,
+          "end": 12.167,
+          "score": 0.824,
+          "lang": "en"
+        },
+        {
+          "word": "to",
+          "start": 12.268,
+          "end": 12.388,
+          "score": 0.922,
+          "lang": "en"
+        },
+        {
+          "word": "eat",
+          "start": 12.509,
+          "end": 12.649,
+          "score": 0.5,
+          "lang": "en"
+        },
+        {
+          "word": "and",
+          "start": 12.75,
+          "end": 14.899,
+          "score": 0.79,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "What",
+      "start": 4.013,
+      "end": 4.375,
+      "score": 0.505,
+      "lang": "en"
+    },
+    {
+      "word": "is",
+      "start": 4.555,
+      "end": 4.997,
+      "score": 0.892,
+      "lang": "en"
+    },
+    {
+      "word": "the",
+      "start": 7.327,
+      "end": 7.467,
+      "score": 0.774,
+      "lang": "en"
+    },
+    {
+      "word": "most",
+      "start": 7.648,
+      "end": 9.315,
+      "score": 0.706,
+      "lang": "en"
+    },
+    {
+      "word": "expensive",
+      "start": 9.516,
+      "end": 11.304,
+      "score": 0.772,
+      "lang": "en"
+    },
+    {
+      "word": "food",
+      "start": 11.344,
+      "end": 11.545,
+      "score": 0.578,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 11.565,
+      "end": 11.705,
+      "score": 0.689,
+      "lang": "en"
+    },
+    {
+      "word": "like",
+      "start": 11.765,
+      "end": 12.167,
+      "score": 0.824,
+      "lang": "en"
+    },
+    {
+      "word": "to",
+      "start": 12.268,
+      "end": 12.388,
+      "score": 0.922,
+      "lang": "en"
+    },
+    {
+      "word": "eat",
+      "start": 12.509,
+      "end": 12.649,
+      "score": 0.5,
+      "lang": "en"
+    },
+    {
+      "word": "and",
+      "start": 12.75,
+      "end": 14.899,
+      "score": 0.79,
+      "lang": "en"
+    },
+    {
+      "word": "why?",
+      "start": 15.983,
+      "end": 17.871,
+      "score": 0.856,
+      "lang": "en"
+    }
+  ]
+}

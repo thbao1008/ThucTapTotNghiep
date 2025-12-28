@@ -1,0 +1,148 @@
+{
+  "language": "en",
+  "text": " Can you define a friendship between a cat and dog?",
+  "segments": [
+    {
+      "text": " Can you define a friendship between a cat and dog?",
+      "start": 0.487,
+      "end": 16.602,
+      "segment_words": [
+        {
+          "word": "Can",
+          "start": 0.487,
+          "end": 1.088,
+          "score": 0.583,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 1.128,
+          "end": 1.249,
+          "score": 0.902,
+          "lang": "en"
+        },
+        {
+          "word": "define",
+          "start": 1.289,
+          "end": 2.151,
+          "score": 0.777,
+          "lang": "en"
+        },
+        {
+          "word": "a",
+          "start": 2.652,
+          "end": 2.712,
+          "score": 0.963,
+          "lang": "en"
+        },
+        {
+          "word": "friendship",
+          "start": 6.119,
+          "end": 7.302,
+          "score": 0.688,
+          "lang": "en"
+        },
+        {
+          "word": "between",
+          "start": 7.402,
+          "end": 7.783,
+          "score": 0.925,
+          "lang": "en"
+        },
+        {
+          "word": "a",
+          "start": 8.083,
+          "end": 8.124,
+          "score": 0.954,
+          "lang": "en"
+        },
+        {
+          "word": "cat",
+          "start": 8.184,
+          "end": 8.705,
+          "score": 0.763,
+          "lang": "en"
+        },
+        {
+          "word": "and",
+          "start": 9.547,
+          "end": 9.647,
+          "score": 0.777,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "Can",
+      "start": 0.487,
+      "end": 1.088,
+      "score": 0.583,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 1.128,
+      "end": 1.249,
+      "score": 0.902,
+      "lang": "en"
+    },
+    {
+      "word": "define",
+      "start": 1.289,
+      "end": 2.151,
+      "score": 0.777,
+      "lang": "en"
+    },
+    {
+      "word": "a",
+      "start": 2.652,
+      "end": 2.712,
+      "score": 0.963,
+      "lang": "en"
+    },
+    {
+      "word": "friendship",
+      "start": 6.119,
+      "end": 7.302,
+      "score": 0.688,
+      "lang": "en"
+    },
+    {
+      "word": "between",
+      "start": 7.402,
+      "end": 7.783,
+      "score": 0.925,
+      "lang": "en"
+    },
+    {
+      "word": "a",
+      "start": 8.083,
+      "end": 8.124,
+      "score": 0.954,
+      "lang": "en"
+    },
+    {
+      "word": "cat",
+      "start": 8.184,
+      "end": 8.705,
+      "score": 0.763,
+      "lang": "en"
+    },
+    {
+      "word": "and",
+      "start": 9.547,
+      "end": 9.647,
+      "score": 0.777,
+      "lang": "en"
+    },
+    {
+      "word": "dog?",
+      "start": 9.847,
+      "end": 16.622,
+      "score": 0.372,
+      "lang": "en"
+    }
+  ]
+}

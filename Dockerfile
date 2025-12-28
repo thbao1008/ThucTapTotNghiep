@@ -1,6 +1,12 @@
 # Base image
 FROM node:20
 
+# Install Python and pip
+RUN apt-get update && apt-get install -y python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies for AI models
+RUN pip3 install --break-system-packages whisperx torch torchaudio langdetect openai
+
 # Set working directory
 WORKDIR /app
 
@@ -25,8 +31,8 @@ RUN cd frontend && npm install
 # Copy source code
 COPY . .
 
-# Build frontend for production - REMOVED for clean Docker
-# RUN cd frontend && npm run build
+# Build frontend for production
+RUN cd frontend && npm run build
 
 # Install all service dependencies individually
 RUN cd backend/services && \

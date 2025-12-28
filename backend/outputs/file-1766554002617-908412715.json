@@ -1,0 +1,64 @@
+{
+  "language": "en",
+  "text": " Hello, hello, hello, hello.",
+  "segments": [
+    {
+      "text": " Hello, hello, hello, hello.",
+      "start": 0.166,
+      "end": 2.005,
+      "segment_words": [
+        {
+          "word": "Hello,",
+          "start": 0.166,
+          "end": 0.703,
+          "score": 0.369,
+          "lang": "en"
+        },
+        {
+          "word": "hello,",
+          "start": 0.724,
+          "end": 1.364,
+          "score": 0.452,
+          "lang": "en"
+        },
+        {
+          "word": "hello,",
+          "start": 1.385,
+          "end": 1.819,
+          "score": 0.247,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "Hello,",
+      "start": 0.166,
+      "end": 0.703,
+      "score": 0.369,
+      "lang": "en"
+    },
+    {
+      "word": "hello,",
+      "start": 0.724,
+      "end": 1.364,
+      "score": 0.452,
+      "lang": "en"
+    },
+    {
+      "word": "hello,",
+      "start": 1.385,
+      "end": 1.819,
+      "score": 0.247,
+      "lang": "en"
+    },
+    {
+      "word": "hello.",
+      "start": 1.84,
+      "end": 2.026,
+      "score": 0.29,
+      "lang": "en"
+    }
+  ]
+}

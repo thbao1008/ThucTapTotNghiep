@@ -48,7 +48,7 @@ export default defineConfig({
             
             // Only log if we haven't logged this error in the last 30 seconds
             if (now - lastLogTime > 30000) {
-              console.error("[Vite Proxy] Error:", err.message, err.code);
+              console.error("[Vite Proxy] Error: - vite.config.js:52", err.message, err.code);
               errorLogTimestamps.set(errorKey, now);
               
               // Clean up old timestamps (older than 5 minutes)
@@ -92,7 +92,7 @@ export default defineConfig({
           proxy.on("proxyRes", (proxyRes, req, res) => {
             // Only log errors
             if (proxyRes.statusCode >= 400) {
-              console.error(`[Vite Proxy] ${req.method} ${req.url} → ${proxyRes.statusCode}`);
+              console.error(`[Vite Proxy] ${req.method} ${req.url} → ${proxyRes.statusCode} - vite.config.js:96`);
             }
           });
         }
@@ -111,7 +111,7 @@ export default defineConfig({
             
             // Only log if we haven't logged this error in the last 30 seconds
             if (now - lastLogTime > 30000) {
-              console.error("[Vite Proxy /uploads] Error:", err.message);
+              console.error("[Vite Proxy /uploads] Error: - vite.config.js:115", err.message);
               errorLogTimestamps.set(errorKey, now);
             }
             
@@ -126,12 +126,12 @@ export default defineConfig({
           proxy.on("proxyReq", (proxyReq, req, res) => {
             // Forward all headers
             if (process.env.NODE_ENV === "development") {
-              console.log(`[Vite Proxy] GET ${req.url} → http://localhost:4000${req.url}`);
+              console.log(`[Vite Proxy] GET ${req.url} → http://localhost:4000${req.url} - vite.config.js:130`);
             }
           });
           proxy.on("proxyRes", (proxyRes, req, res) => {
             if (proxyRes.statusCode >= 400) {
-              console.error(`[Vite Proxy /uploads] ${req.url} → ${proxyRes.statusCode}`);
+              console.error(`[Vite Proxy /uploads] ${req.url} → ${proxyRes.statusCode} - vite.config.js:135`);
             }
           });
         }

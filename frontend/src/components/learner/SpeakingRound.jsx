@@ -34,7 +34,9 @@ export default function SpeakingRound({
   const [preloadingWords, setPreloadingWords] = useState(false); // Đang preload từ
   const [countdown, setCountdown] = useState(null);
   const [showPrompt, setShowPrompt] = useState(false); // Chỉ hiển thị prompt sau countdown
-  const [highlightedWords, setHighlightedWords] = useState(new Set()); // Từ đã được nói đúng
+  const [webSpeechTranscript, setWebSpeechTranscript] = useState("");
+  const [webSpeechHighlights, setWebSpeechHighlights] = useState(new Set()); // Từ đã được nói đúng
+  const [highlightedWords, setHighlightedWords] = useState(new Set()); // Real-time highlights từ Web Speech
   const [missingWords, setMissingWords] = useState(new Set()); // Từ không nói được (sau khi kiểm tra)
   const [loadingPrompt, setLoadingPrompt] = useState(true); // Loading state cho prompt
   const [promptError, setPromptError] = useState(null); // Error state cho prompt
@@ -142,6 +144,7 @@ export default function SpeakingRound({
       setIsRecording(false);
       isRecordingRef.current = false;
       setHighlightedWords(new Set());
+      setWebSpeechHighlights(new Set()); // Reset Web Speech highlights
       setTimeRemaining(res.data.time_limit || 30);
       setCountdown(null); // Reset countdown
       setLoadingPrompt(false);
@@ -181,6 +184,7 @@ export default function SpeakingRound({
     isRecordingRef.current = true;
     startTimeRef.current = Date.now();
     setHighlightedWords(new Set()); // Reset highlighted words
+    setWebSpeechHighlights(new Set()); // Reset Web Speech highlights
     
     // Đợi một chút để đảm bảo prompt state đã được update và refs được mount
     setTimeout(async () => {
@@ -294,6 +298,7 @@ export default function SpeakingRound({
       const currentPrompt = prompt || promptDataRef.current?.prompt || "";
       
       if (!currentPrompt) {
+        console.log("❌ No prompt available for matching");
         return;
       }
       
@@ -303,6 +308,9 @@ export default function SpeakingRound({
         fullTranscript += event.results[i][0].transcript;
       }
       
+      // Lưu Web Speech transcript
+      setWebSpeechTranscript(fullTranscript);
+      
       // Chuyển transcript và prompt thành lowercase để so sánh
       const transcriptLower = fullTranscript.toLowerCase().trim();
       const transcriptWords = transcriptLower.split(/\s+/).map(w => w.replace(/[.,!?;:]/g, ""));
@@ -310,52 +318,44 @@ export default function SpeakingRound({
       
       // Tìm các từ đã được nói - so sánh theo thứ tự và similarity
       const newHighlightedWords = new Set();
+      const newWebSpeechHighlights = new Set(); // Lưu indices của từ đã match
+      
       let transcriptWordIndex = 0;
+      
+      console.log(`🎤 Transcript: "${transcriptLower}"`);
+      console.log(`📝 Prompt words: [${promptWords.join(', ')}]`);
       
       promptWords.forEach((promptWord, promptIdx) => {
         // Tìm từ trong transcript bắt đầu từ vị trí hiện tại
         for (let i = transcriptWordIndex; i < transcriptWords.length; i++) {
           const transcriptWord = transcriptWords[i];
           
-          // Kiểm tra exact match hoặc similarity cao
-          if (promptWord === transcriptWord) {
-            // Exact match - chắc chắn đúng
+          // Đơn giản hóa logic matching: exact match hoặc partial match
+          const isMatch = 
+            transcriptWord === promptWord || // Exact match
+            transcriptWord.includes(promptWord) || // Transcript chứa prompt
+            (promptWord.includes(transcriptWord) && transcriptWord.length >= 3); // Prompt chứa transcript (transcript đủ dài)
+          
+          if (isMatch) {
             newHighlightedWords.add(promptIdx);
+            newWebSpeechHighlights.add(promptIdx); // Lưu cho backend
             transcriptWordIndex = i + 1; // Di chuyển pointer
             break;
-          } else {
-            const similarity = calculateSimilarity(promptWord, transcriptWord);
-            if (similarity > 0.7) {
-              // Similarity cao - có thể đúng
-              newHighlightedWords.add(promptIdx);
-              transcriptWordIndex = i + 1; // Di chuyển pointer
-              break;
-            } else if (promptWord.length > 3 && transcriptWord.includes(promptWord)) {
-              // Từ dài và transcript chứa prompt word - có thể đúng
-              newHighlightedWords.add(promptIdx);
-              transcriptWordIndex = i + 1;
-              break;
-            } else if (promptWord.includes(transcriptWord) && transcriptWord.length > 2) {
-              // Prompt word chứa transcript word và transcript word đủ dài - có thể đúng
-              newHighlightedWords.add(promptIdx);
-              transcriptWordIndex = i + 1;
-              break;
-            }
           }
         }
       });
       
-      // Cập nhật highlighted words
+      // Cập nhật highlighted words cho UI
       setHighlightedWords(newHighlightedWords);
+      setWebSpeechHighlights(newWebSpeechHighlights);
       
       // Tự động chuyển vòng nếu đã đọc đúng hết tất cả từ
       if (newHighlightedWords.size === promptWords.length && isRecordingRef.current) {
-        // Đợi một chút để đảm bảo audio được ghi xong
-        setTimeout(() => {
-          if (isRecordingRef.current) {
-            stopRecording();
-          }
-        }, 500);
+        console.log(`🚀 Auto-submit triggered! All ${promptWords.length} words matched.`);
+        // Đánh dấu auto-submit để handleAudioRecorded xử lý submit
+        finishEarlyRef.current = true;
+        // Stop recording ngay lập tức
+        stopRecording();
       }
     };
 
@@ -515,6 +515,8 @@ export default function SpeakingRound({
       formData.append("time_taken", timeTaken);
       formData.append("round_number", roundNumber);
       formData.append("prompt", prompt || promptDataRef.current?.prompt || ""); // QUAN TRỌNG: Gửi prompt để lưu vào DB
+      formData.append("web_speech_transcript", webSpeechTranscript); // Gửi Web Speech transcript
+      formData.append("web_speech_highlights", JSON.stringify(Array.from(webSpeechHighlights))); // Gửi highlights từ Web Speech
 
       const res = await api.post(
         `/learners/speaking-practice/sessions/${sessionId}/rounds`,

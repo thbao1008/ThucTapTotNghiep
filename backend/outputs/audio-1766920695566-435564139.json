@@ -1,0 +1,36 @@
+{
+  "language": "en",
+  "text": " What is?",
+  "segments": [
+    {
+      "text": " What is?",
+      "start": 32.667,
+      "end": 33.443,
+      "segment_words": [
+        {
+          "word": "What",
+          "start": 32.667,
+          "end": 33.357,
+          "score": 0.757,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "What",
+      "start": 32.667,
+      "end": 33.357,
+      "score": 0.757,
+      "lang": "en"
+    },
+    {
+      "word": "is?",
+      "start": 33.4,
+      "end": 33.465,
+      "score": 0.333,
+      "lang": "en"
+    }
+  ]
+}

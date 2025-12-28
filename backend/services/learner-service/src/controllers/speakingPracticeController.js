@@ -182,6 +182,14 @@ export async function getPrompt(req, res) {
  */
 export async function saveRound(req, res) {
   try {
+    console.log("📥 Controller received request body keys:", Object.keys(req.body));
+    console.log("📥 Controller received files:", req.file ? req.file.filename : 'no file');
+    console.log("📥 Raw body data:", {
+      prompt: req.body.prompt,
+      web_speech_transcript: req.body.web_speech_transcript,
+      web_speech_highlights: req.body.web_speech_highlights
+    });
+    
     const { sessionId } = req.params;
     const { round_number, time_taken } = req.body;
 
@@ -194,13 +202,37 @@ export async function saveRound(req, res) {
     // Lấy prompt từ request body nếu có (từ frontend)
     const promptText = req.body.prompt || null;
     
+    // Lấy Web Speech data từ frontend
+    const webSpeechTranscript = req.body.web_speech_transcript || null;
+    let webSpeechHighlights = null;
+    try {
+      if (req.body.web_speech_highlights) {
+        console.log("🔍 Raw web_speech_highlights from FormData:", typeof req.body.web_speech_highlights, req.body.web_speech_highlights);
+        webSpeechHighlights = JSON.parse(req.body.web_speech_highlights);
+        console.log("✅ Parsed web_speech_highlights:", typeof webSpeechHighlights, webSpeechHighlights);
+      }
+    } catch (parseErr) {
+      console.log("❌ Failed to parse web_speech_highlights:", req.body.web_speech_highlights, parseErr);
+    }
+    
+    console.log("🎤 Controller received Web Speech data:", {
+      hasTranscript: !!webSpeechTranscript,
+      transcriptLength: webSpeechTranscript ? webSpeechTranscript.length : 0,
+      highlightsRaw: req.body.web_speech_highlights,
+      highlightsParsed: webSpeechHighlights,
+      highlightsLength: webSpeechHighlights ? webSpeechHighlights.length : 0,
+      highlightsTypes: webSpeechHighlights ? webSpeechHighlights.map(h => typeof h) : []
+    });
+    
     // Lưu ngay, xử lý ở background
     const round = await speakingPracticeService.saveRound(
       sessionId,
       parseInt(round_number),
       audioUrl,
       parseInt(time_taken),
-      promptText // Truyền prompt từ frontend nếu có
+      promptText, // Truyền prompt từ frontend nếu có
+      webSpeechTranscript, // Truyền Web Speech transcript
+      webSpeechHighlights // Truyền Web Speech highlights
     );
 
     // Trả về ngay, không đợi analysis

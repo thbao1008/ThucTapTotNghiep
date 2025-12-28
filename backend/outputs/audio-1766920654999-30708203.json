@@ -1,0 +1,120 @@
+{
+  "language": "en",
+  "text": " Did you know that Did you know that",
+  "segments": [
+    {
+      "text": " Did you know that Did you know that",
+      "start": 0.031,
+      "end": 23.825,
+      "segment_words": [
+        {
+          "word": "Did",
+          "start": 0.031,
+          "end": 13.17,
+          "score": 0.763,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 13.23,
+          "end": 13.37,
+          "score": 0.995,
+          "lang": "en"
+        },
+        {
+          "word": "know",
+          "start": 13.45,
+          "end": 13.951,
+          "score": 0.713,
+          "lang": "en"
+        },
+        {
+          "word": "that",
+          "start": 14.131,
+          "end": 14.392,
+          "score": 0.74,
+          "lang": "en"
+        },
+        {
+          "word": "Did",
+          "start": 22.263,
+          "end": 22.463,
+          "score": 0.832,
+          "lang": "en"
+        },
+        {
+          "word": "you",
+          "start": 22.563,
+          "end": 22.703,
+          "score": 0.992,
+          "lang": "en"
+        },
+        {
+          "word": "know",
+          "start": 22.844,
+          "end": 23.244,
+          "score": 0.722,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "Did",
+      "start": 0.031,
+      "end": 13.17,
+      "score": 0.763,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 13.23,
+      "end": 13.37,
+      "score": 0.995,
+      "lang": "en"
+    },
+    {
+      "word": "know",
+      "start": 13.45,
+      "end": 13.951,
+      "score": 0.713,
+      "lang": "en"
+    },
+    {
+      "word": "that",
+      "start": 14.131,
+      "end": 14.392,
+      "score": 0.74,
+      "lang": "en"
+    },
+    {
+      "word": "Did",
+      "start": 22.263,
+      "end": 22.463,
+      "score": 0.832,
+      "lang": "en"
+    },
+    {
+      "word": "you",
+      "start": 22.563,
+      "end": 22.703,
+      "score": 0.992,
+      "lang": "en"
+    },
+    {
+      "word": "know",
+      "start": 22.844,
+      "end": 23.244,
+      "score": 0.722,
+      "lang": "en"
+    },
+    {
+      "word": "that",
+      "start": 23.444,
+      "end": 23.845,
+      "score": 0.716,
+      "lang": "en"
+    }
+  ]
+}

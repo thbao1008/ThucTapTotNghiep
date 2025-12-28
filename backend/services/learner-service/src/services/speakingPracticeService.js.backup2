@@ -286,7 +286,7 @@ async function getPersonalizationContext(learnerId, sessionId) {
     const execAsync = promisify(exec);
     
     const backendDir = getProjectRoot();
-    const enginePath = path.join(backendDir, "ai_models", "aiespContinuousLearning.py");
+    const enginePath = path.join(backendDir, "ai_models", "continuousLearningEngine.py");
     
     // Lấy dữ liệu session để phân tích
     const rounds = await pool.query(
@@ -332,7 +332,7 @@ async function getPersonalizationContext(learnerId, sessionId) {
     };
     
     const sessionDataJson = JSON.stringify(sessionData).replace(/"/g, '\\"');
-    const command = `python "${enginePath}" check speaking`;
+    const command = `python "${enginePath}" analyze ${learnerId} "${sessionDataJson}"`;
     
     const { stdout } = await execAsync(command);
     const result = JSON.parse(stdout);
@@ -932,7 +932,7 @@ export function getTimeLimit(level, prompt = "") {
 /**
  * Lưu vòng nói (lưu ngay, xử lý ở background)
  */
-export async function saveRound(sessionId, roundNumber, audioUrl, timeTaken, promptText = null, webSpeechTranscript = null, webSpeechHighlights = null) {
+export async function saveRound(sessionId, roundNumber, audioUrl, timeTaken, promptText = null) {
   const session = await pool.query(
     `SELECT level, learner_id FROM speaking_practice_sessions WHERE id = $1`,
     [sessionId]
@@ -955,17 +955,15 @@ export async function saveRound(sessionId, roundNumber, audioUrl, timeTaken, pro
   // Lưu vào database ngay (chưa có transcript và analysis)
   const result = await pool.query(
     `INSERT INTO speaking_practice_rounds 
-     (session_id, round_number, prompt, audio_url, transcript, time_taken, score, analysis, web_speech_transcript, web_speech_highlights)
-     VALUES ($1, $2, $3, $4, NULL, $5, 0, NULL, $6, $7)
+     (session_id, round_number, prompt, audio_url, transcript, time_taken, score, analysis)
+     VALUES ($1, $2, $3, $4, NULL, $5, 0, NULL)
      RETURNING *`,
     [
       sessionId,
       roundNumber,
       prompt,
       audioUrl,
-      timeTaken,
-      webSpeechTranscript,
-      webSpeechHighlights ? JSON.stringify(webSpeechHighlights) : null
+      timeTaken
     ]
   );
 
@@ -976,20 +974,13 @@ export async function saveRound(sessionId, roundNumber, audioUrl, timeTaken, pro
   try {
     const { enqueue } = await import("../utils/queue.js");
     // Enqueue với priority cao để xử lý nhanh
-    console.log("📤 Enqueueing speaking round with Web Speech data:", {
-      roundId,
-      webSpeechTranscript: !!webSpeechTranscript,
-      webSpeechHighlights: webSpeechHighlights ? webSpeechHighlights.length : 0
-    });
     await enqueue("processSpeakingRound", {
       roundId,
       sessionId,
       audioUrl,
       prompt,
       level,
-      time_taken: timeTaken,
-      webSpeechTranscript,
-      webSpeechHighlights
+      time_taken: timeTaken
     }, {
       priority: 1, // Priority cao để xử lý ngay
       attempts: 2 // Retry nếu fail
@@ -1166,12 +1157,6 @@ async function processRoundInBackground(roundId, audioUrl, prompt, level, sessio
  * Phân tích phát âm với AI sử dụng Python trainer (quick analysis)
  */
 async function analyzePronunciation(transcript, expectedText, level, roundId = null, sessionId = null, learnerId = null) {
-  console.log(`🎤 BACKEND analyzePronunciation called:`);
-  console.log(`   Transcript: "${transcript}"`);
-  console.log(`   Expected: "${expectedText}"`);
-  console.log(`   Level: ${level}`);
-  console.log(`   Round ID: ${roundId}`);
-  
   // QUAN TRỌNG: Kiểm tra nếu không nói gì (transcript rỗng hoặc không có từ nào) thì score = 0
   if (!transcript || !transcript.trim()) {
     return {
@@ -1192,26 +1177,11 @@ async function analyzePronunciation(transcript, expectedText, level, roundId = n
   console.log(`🔍 Word matching: expected="${expectedText.substring(0, 60)}..." (${expectedWords.length} words)`);
   console.log(`🔍 Transcript: "${transcript.substring(0, 60)}..." (${transcriptWords.length} words)`);
   
-  // Xử lý từ ghép phổ biến (everyday -> every day, etc.)
-  const compoundWords = {
-    'everyday': ['every', 'day'],
-    'every day': ['every', 'day'],
-    'yourself': ['your', 'self'],
-    'myself': ['my', 'self'],
-    'himself': ['him', 'self'],
-    'herself': ['her', 'self'],
-    'itself': ['it', 'self'],
-    'ourselves': ['our', 'selves'],
-    'yourselves': ['your', 'selves'],
-    'themselves': ['them', 'selves']
-  };
-  
   // Nếu không có từ nào match, score = 0
   // Logic: Một từ được coi là "đúng" nếu:
   // 1. Exact match (sau khi loại bỏ dấu câu)
   // 2. Transcript word chứa expected word (cho phép nói thêm)
   // 3. Expected word chứa transcript word (cho phép nói ngắn gọn)
-  // 4. Compound word matching (everyday -> every + day)
   const matchedWords = expectedWords.filter(ew => {
     const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
     if (!cleanExpected) return false;
@@ -1228,16 +1198,6 @@ async function analyzePronunciation(transcript, expectedText, level, roundId = n
       
       // Partial match: expected chứa transcript (cho phép nói ngắn gọn, nhưng phải >= 3 ký tự)
       if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
-      
-      // Compound word matching: kiểm tra xem transcript word có phải là từ ghép không
-      if (compoundWords[cleanTranscript]) {
-        return compoundWords[cleanTranscript].includes(cleanExpected);
-      }
-      
-      // Compound word matching: kiểm tra xem expected word có phải là từ ghép không
-      if (compoundWords[cleanExpected]) {
-        return compoundWords[cleanExpected].includes(cleanTranscript);
-      }
       
       return false;
     });
@@ -1291,6 +1251,96 @@ async function analyzePronunciation(transcript, expectedText, level, roundId = n
     strengths: score >= 5 ? ["Nỗ lực tốt", "Tiếp tục luyện tập"] : [],
     improvements: score < 5 ? ["Hãy nói to và rõ ràng hơn", "Nghe kỹ prompt trước khi nói"] : ["Tiếp tục cải thiện phát âm"]
   };
+}
+
+      const content = response.choices?.[0]?.message?.content || "{}";
+      let parsed;
+      try {
+        parsed = JSON.parse(content);
+      } catch (e) {
+        console.warn("⚠️ Failed to parse AI response, using fallback");
+        return await analyzePronunciationFallback(transcript, expectedText, level);
+      }
+      
+      // Validate parsed response
+      if (!parsed || typeof parsed !== 'object') {
+        console.warn("⚠️ Invalid AI response format, using fallback");
+        return await analyzePronunciationFallback(transcript, expectedText, level);
+      }
+      
+      // Tính missing_words từ kết quả phân tích (các từ KHÔNG được nói đúng)
+      // Dùng cùng logic với matchedWords để đảm bảo consistency
+      const missingWords = expectedWords.filter(ew => {
+        const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
+        if (!cleanExpected) return false;
+        
+        return !transcriptWords.some(tw => {
+          const cleanTranscript = tw.replace(/[.,!?;:]/g, "").trim();
+          if (!cleanTranscript) return false;
+          
+          // Exact match
+          if (cleanTranscript === cleanExpected) return true;
+          
+          // Partial match: transcript chứa expected
+          if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
+          
+          // Partial match: expected chứa transcript (>= 3 ký tự)
+          if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
+          
+          return false;
+        });
+      });
+      
+      // Tính điểm dựa trên số từ đúng / tổng số từ (thang 100)
+      // Đây là logic chính: điểm = (số từ đúng / tổng số từ) * 100
+      const accuracyRatio = matchedWords.length / expectedWords.length;
+      const baseScore = accuracyRatio * 100; // Điểm cơ bản dựa trên số từ đúng
+      
+      console.log(`📊 Score calculation: matched=${matchedWords.length}, total=${expectedWords.length}, ratio=${accuracyRatio.toFixed(2)}, baseScore=${baseScore.toFixed(1)}`);
+      
+      // Nếu AI trả về score, dùng nó nhưng không được vượt quá baseScore
+      // AI score thường là thang 10, cần convert sang 100
+      const aiScore = parsed.score ? (parsed.score * 10) : null;
+      
+      // Điểm cuối cùng: ưu tiên baseScore (dựa trên số từ đúng), AI chỉ điều chỉnh nhẹ
+      // Đảm bảo điểm không thấp hơn 70% của baseScore và không vượt quá baseScore
+      const finalScore = aiScore ? Math.min(Math.max(aiScore, baseScore * 0.7), baseScore) : baseScore;
+      
+      console.log(`📊 Final score: aiScore=${aiScore}, finalScore=${finalScore.toFixed(1)}, missing_words=${missingWords.length}`);
+      
+      // Lưu quick evaluation vào database
+      if (roundId && learnerId) {
+        await pool.query(
+          `INSERT INTO quick_evaluations 
+           (round_id, session_id, learner_id, score, feedback, strengths, improvements)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            roundId,
+            sessionId,
+            learnerId,
+            finalScore,
+            parsed.feedback || "",
+            JSON.stringify(parsed.strengths || []),
+            JSON.stringify(parsed.improvements || [])
+          ]
+        );
+      }
+      
+      return {
+        score: Math.round(finalScore), // Làm tròn điểm
+        feedback: parsed.feedback || "Good effort!",
+        errors: [],
+        corrected_text: expectedText,
+        missing_words: missingWords,
+        strengths: parsed.strengths || [],
+        improvements: parsed.improvements || []
+      };
+    } catch (err) {
+      // Nếu gặp lỗi payment required hoặc các lỗi khác, fallback về phương pháp cũ
+      console.error("❌ AI analysis error:", err);
+      console.warn("⚠️ Falling back to basic pronunciation analysis");
+      return await analyzePronunciationFallback(transcript, expectedText, level);
+    }
 }
 
 /**
@@ -1786,7 +1836,5 @@ Return JSON only:
     rounds: roundsWithMissingWords
   };
 }
-
-export { analyzePronunciation, analyzePronunciationFallback };
 
 

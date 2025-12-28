@@ -1,0 +1,190 @@
+{
+  "language": "en",
+  "text": " My favorite color is blue because it makes me feel calm and happy.",
+  "segments": [
+    {
+      "text": " My favorite color is blue because it makes me feel calm and happy.",
+      "start": 4.587,
+      "end": 12.434,
+      "segment_words": [
+        {
+          "word": "My",
+          "start": 4.587,
+          "end": 4.888,
+          "score": 0.662,
+          "lang": "en"
+        },
+        {
+          "word": "favorite",
+          "start": 4.968,
+          "end": 5.49,
+          "score": 0.55,
+          "lang": "en"
+        },
+        {
+          "word": "color",
+          "start": 5.631,
+          "end": 6.233,
+          "score": 0.859,
+          "lang": "en"
+        },
+        {
+          "word": "is",
+          "start": 7.457,
+          "end": 7.577,
+          "score": 0.868,
+          "lang": "en"
+        },
+        {
+          "word": "blue",
+          "start": 9.745,
+          "end": 9.986,
+          "score": 0.725,
+          "lang": "en"
+        },
+        {
+          "word": "because",
+          "start": 10.046,
+          "end": 10.487,
+          "score": 0.892,
+          "lang": "en"
+        },
+        {
+          "word": "it",
+          "start": 10.507,
+          "end": 10.548,
+          "score": 0.488,
+          "lang": "en"
+        },
+        {
+          "word": "makes",
+          "start": 10.668,
+          "end": 11.089,
+          "score": 0.466,
+          "lang": "en"
+        },
+        {
+          "word": "me",
+          "start": 11.109,
+          "end": 11.15,
+          "score": 0.0,
+          "lang": "en"
+        },
+        {
+          "word": "feel",
+          "start": 11.17,
+          "end": 11.33,
+          "score": 0.422,
+          "lang": "en"
+        },
+        {
+          "word": "calm",
+          "start": 11.41,
+          "end": 11.732,
+          "score": 0.758,
+          "lang": "en"
+        },
+        {
+          "word": "and",
+          "start": 11.752,
+          "end": 11.872,
+          "score": 0.813,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "My",
+      "start": 4.587,
+      "end": 4.888,
+      "score": 0.662,
+      "lang": "en"
+    },
+    {
+      "word": "favorite",
+      "start": 4.968,
+      "end": 5.49,
+      "score": 0.55,
+      "lang": "en"
+    },
+    {
+      "word": "color",
+      "start": 5.631,
+      "end": 6.233,
+      "score": 0.859,
+      "lang": "en"
+    },
+    {
+      "word": "is",
+      "start": 7.457,
+      "end": 7.577,
+      "score": 0.868,
+      "lang": "en"
+    },
+    {
+      "word": "blue",
+      "start": 9.745,
+      "end": 9.986,
+      "score": 0.725,
+      "lang": "en"
+    },
+    {
+      "word": "because",
+      "start": 10.046,
+      "end": 10.487,
+      "score": 0.892,
+      "lang": "en"
+    },
+    {
+      "word": "it",
+      "start": 10.507,
+      "end": 10.548,
+      "score": 0.488,
+      "lang": "en"
+    },
+    {
+      "word": "makes",
+      "start": 10.668,
+      "end": 11.089,
+      "score": 0.466,
+      "lang": "en"
+    },
+    {
+      "word": "me",
+      "start": 11.109,
+      "end": 11.15,
+      "score": 0.0,
+      "lang": "en"
+    },
+    {
+      "word": "feel",
+      "start": 11.17,
+      "end": 11.33,
+      "score": 0.422,
+      "lang": "en"
+    },
+    {
+      "word": "calm",
+      "start": 11.41,
+      "end": 11.732,
+      "score": 0.758,
+      "lang": "en"
+    },
+    {
+      "word": "and",
+      "start": 11.752,
+      "end": 11.872,
+      "score": 0.813,
+      "lang": "en"
+    },
+    {
+      "word": "happy.",
+      "start": 11.972,
+      "end": 12.454,
+      "score": 0.921,
+      "lang": "en"
+    }
+  ]
+}

@@ -1,0 +1,316 @@
+{
+  "language": "en",
+  "text": " I want a head chocolate with avocado and it's surprisingly delicious. I want a head chocolate with avocado and it's surprisingly delicious.",
+  "segments": [
+    {
+      "text": " I want a head chocolate with avocado and it's surprisingly delicious. I want a head chocolate with avocado and it's surprisingly delicious.",
+      "start": 0.031,
+      "end": 16.045,
+      "segment_words": [
+        {
+          "word": "I",
+          "start": 0.031,
+          "end": 1.454,
+          "score": 0.936,
+          "lang": "en"
+        },
+        {
+          "word": "want",
+          "start": 1.474,
+          "end": 1.895,
+          "score": 0.782,
+          "lang": "en"
+        },
+        {
+          "word": "a",
+          "start": 1.935,
+          "end": 1.995,
+          "score": 0.81,
+          "lang": "en"
+        },
+        {
+          "word": "head",
+          "start": 2.035,
+          "end": 3.599,
+          "score": 0.611,
+          "lang": "en"
+        },
+        {
+          "word": "chocolate",
+          "start": 3.699,
+          "end": 4.26,
+          "score": 0.788,
+          "lang": "en"
+        },
+        {
+          "word": "with",
+          "start": 4.44,
+          "end": 4.621,
+          "score": 0.731,
+          "lang": "en"
+        },
+        {
+          "word": "avocado",
+          "start": 4.841,
+          "end": 5.463,
+          "score": 0.864,
+          "lang": "en"
+        },
+        {
+          "word": "and",
+          "start": 5.603,
+          "end": 5.683,
+          "score": 0.826,
+          "lang": "en"
+        },
+        {
+          "word": "it's",
+          "start": 5.823,
+          "end": 5.924,
+          "score": 0.442,
+          "lang": "en"
+        },
+        {
+          "word": "surprisingly",
+          "start": 6.004,
+          "end": 6.685,
+          "score": 0.79,
+          "lang": "en"
+        },
+        {
+          "word": "delicious.",
+          "start": 6.825,
+          "end": 7.387,
+          "score": 0.644,
+          "lang": "en"
+        },
+        {
+          "word": "I",
+          "start": 10.213,
+          "end": 10.273,
+          "score": 0.966,
+          "lang": "en"
+        },
+        {
+          "word": "want",
+          "start": 10.413,
+          "end": 10.533,
+          "score": 0.376,
+          "lang": "en"
+        },
+        {
+          "word": "a",
+          "start": 10.553,
+          "end": 10.573,
+          "score": 0.608,
+          "lang": "en"
+        },
+        {
+          "word": "head",
+          "start": 10.593,
+          "end": 10.834,
+          "score": 0.627,
+          "lang": "en"
+        },
+        {
+          "word": "chocolate",
+          "start": 10.894,
+          "end": 11.415,
+          "score": 0.685,
+          "lang": "en"
+        },
+        {
+          "word": "with",
+          "start": 11.475,
+          "end": 11.696,
+          "score": 0.826,
+          "lang": "en"
+        },
+        {
+          "word": "avocado",
+          "start": 12.097,
+          "end": 12.898,
+          "score": 0.845,
+          "lang": "en"
+        },
+        {
+          "word": "and",
+          "start": 13.399,
+          "end": 13.48,
+          "score": 0.681,
+          "lang": "en"
+        },
+        {
+          "word": "it's",
+          "start": 13.68,
+          "end": 13.84,
+          "score": 0.78,
+          "lang": "en"
+        },
+        {
+          "word": "surprisingly",
+          "start": 14.622,
+          "end": 15.243,
+          "score": 0.794,
+          "lang": "en"
+        }
+      ]
+    }
+  ],
+  "words": [
+    {
+      "word": "I",
+      "start": 0.031,
+      "end": 1.454,
+      "score": 0.936,
+      "lang": "en"
+    },
+    {
+      "word": "want",
+      "start": 1.474,
+      "end": 1.895,
+      "score": 0.782,
+      "lang": "en"
+    },
+    {
+      "word": "a",
+      "start": 1.935,
+      "end": 1.995,
+      "score": 0.81,
+      "lang": "en"
+    },
+    {
+      "word": "head",
+      "start": 2.035,
+      "end": 3.599,
+      "score": 0.611,
+      "lang": "en"
+    },
+    {
+      "word": "chocolate",
+      "start": 3.699,
+      "end": 4.26,
+      "score": 0.788,
+      "lang": "en"
+    },
+    {
+      "word": "with",
+      "start": 4.44,
+      "end": 4.621,
+      "score": 0.731,
+      "lang": "en"
+    },
+    {
+      "word": "avocado",
+      "start": 4.841,
+      "end": 5.463,
+      "score": 0.864,
+      "lang": "en"
+    },
+    {
+      "word": "and",
+      "start": 5.603,
+      "end": 5.683,
+      "score": 0.826,
+      "lang": "en"
+    },
+    {
+      "word": "it's",
+      "start": 5.823,
+      "end": 5.924,
+      "score": 0.442,
+      "lang": "en"
+    },
+    {
+      "word": "surprisingly",
+      "start": 6.004,
+      "end": 6.685,
+      "score": 0.79,
+      "lang": "en"
+    },
+    {
+      "word": "delicious.",
+      "start": 6.825,
+      "end": 7.387,
+      "score": 0.644,
+      "lang": "en"
+    },
+    {
+      "word": "I",
+      "start": 10.213,
+      "end": 10.273,
+      "score": 0.966,
+      "lang": "en"
+    },
+    {
+      "word": "want",
+      "start": 10.413,
+      "end": 10.533,
+      "score": 0.376,
+      "lang": "en"
+    },
+    {
+      "word": "a",
+      "start": 10.553,
+      "end": 10.573,
+      "score": 0.608,
+      "lang": "en"
+    },
+    {
+      "word": "head",
+      "start": 10.593,
+      "end": 10.834,
+      "score": 0.627,
+      "lang": "en"
+    },
+    {
+      "word": "chocolate",
+      "start": 10.894,
+      "end": 11.415,
+      "score": 0.685,
+      "lang": "en"
+    },
+    {
+      "word": "with",
+      "start": 11.475,
+      "end": 11.696,
+      "score": 0.826,
+      "lang": "en"
+    },
+    {
+      "word": "avocado",
+      "start": 12.097,
+      "end": 12.898,
+      "score": 0.845,
+      "lang": "en"
+    },
+    {
+      "word": "and",
+      "start": 13.399,
+      "end": 13.48,
+      "score": 0.681,
+      "lang": "en"
+    },
+    {
+      "word": "it's",
+      "start": 13.68,
+      "end": 13.84,
+      "score": 0.78,
+      "lang": "en"
+    },
+    {
+      "word": "surprisingly",
+      "start": 14.622,
+      "end": 15.243,
+      "score": 0.794,
+      "lang": "en"
+    },
+    {
+      "word": "delicious.",
+      "start": 15.364,
+      "end": 16.065,
+      "score": 0.616,
+      "lang": "en"
+    }
+  ]
+}

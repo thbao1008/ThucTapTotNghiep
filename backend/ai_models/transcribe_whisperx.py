@@ -66,30 +66,30 @@ def run_whisperx(audio_path, output_path="outputs/record.json", model_size="base
             gpu_name = torch.cuda.get_device_name(0)
             gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
             cuda_version = torch.version.cuda
-            print(f"[whisperx] 🚀 GPU detected: {gpu_name} ({gpu_memory:.1f} GB) - transcribe_whisperx.py:68", flush=True)
-            print(f"[whisperx] CUDA version: {cuda_version} - transcribe_whisperx.py:69", flush=True)
-            print(f"[whisperx] PyTorch version: {torch.__version__} - transcribe_whisperx.py:70", flush=True)
+            print(f"[whisperx] 🚀 GPU detected: {gpu_name} ({gpu_memory:.1f} GB) - transcribe_whisperx.py:69", flush=True)
+            print(f"[whisperx] CUDA version: {cuda_version} - transcribe_whisperx.py:70", flush=True)
+            print(f"[whisperx] PyTorch version: {torch.__version__} - transcribe_whisperx.py:71", flush=True)
             
             # Kiểm tra tương thích CUDA 12.x
             if cuda_version and cuda_version.startswith("12."):
-                print(f"[whisperx] ✅ CUDA 12.x detected - compatible with PyTorch {torch.__version__} - transcribe_whisperx.py:72", flush=True)
+                print(f"[whisperx] ✅ CUDA 12.x detected  compatible with PyTorch {torch.__version__} - transcribe_whisperx.py:75", flush=True)
         except Exception as e:
-            print(f"[whisperx] ⚠️  GPU detected but error accessing: {e}, falling back to CPU - transcribe_whisperx.py:74", flush=True)
+            print(f"[whisperx] ⚠️  GPU detected but error accessing: {e}, falling back to CPU - transcribe_whisperx.py:77", flush=True)
             device = "cpu"
             compute_type = "float32"
     else:
-        print(f"[whisperx] ⚠️  GPU not available, using CPU - transcribe_whisperx.py:77", flush=True)
+        print(f"[whisperx] ⚠️  GPU not available, using CPU - transcribe_whisperx.py:81", flush=True)
     
-    print(f"[whisperx] Running on: {audio_path} - transcribe_whisperx.py:65", flush=True)
-    print(f"[whisperx] Model: {model_size} | Device: {device} | compute_type: {compute_type} - transcribe_whisperx.py:66", flush=True)
+    print(f"[whisperx] Running on: {audio_path} - transcribe_whisperx.py:83", flush=True)
+    print(f"[whisperx] Model: {model_size} | Device: {device} | compute_type: {compute_type} - transcribe_whisperx.py:84", flush=True)
 
-    # Set env for ctranslate2 - ưu tiên GPU laptop
+    # Set env for ctranslate2 - ưu tiên GPU nếu có
     os.environ.setdefault("CT2_COMPUTE_TYPE", compute_type)
     if device == "cuda":
         # Ưu tiên GPU laptop (GPU 0) cho ctranslate2
         os.environ.setdefault("CUDA_VISIBLE_DEVICES", "0")
         # Đảm bảo sử dụng GPU cho PyTorch
-        print(f"[whisperx] ✅ Using GPU 0 (laptop GPU) - transcribe_whisperx.py:85", flush=True)
+        print(f"[whisperx] ✅ Using GPU 0 (laptop GPU) - transcribe_whisperx.py:92", flush=True)
 
     # Load model với fallback về CPU nếu GPU lỗi
     model = None
@@ -102,8 +102,8 @@ def run_whisperx(audio_path, output_path="outputs/record.json", model_size="base
                 # Nếu lỗi CUDA (như cublas64_12.dll not found), fallback về CPU
                 error_str = str(gpu_err).lower()
                 if "cublas" in error_str or "cuda" in error_str or "dll" in error_str or "library" in error_str:
-                    print(f"[whisperx] ⚠️  GPU error ({gpu_err}), falling back to CPU - transcribe_whisperx.py:99", flush=True)
-                    print(f"[whisperx] 💡 Tip: Ensure CUDA 12.1 libraries are installed correctly - transcribe_whisperx.py:100", flush=True)
+                    print(f"[whisperx] ⚠️  GPU error ({gpu_err}), falling back to CPU - transcribe_whisperx.py:105", flush=True)
+                    print(f"[whisperx] 💡 Tip: Ensure CUDA 12.1 libraries are installed correctly - transcribe_whisperx.py:106", flush=True)
                     device = "cpu"
                     compute_type = "float32"
                     os.environ["CT2_COMPUTE_TYPE"] = compute_type
@@ -121,20 +121,20 @@ def run_whisperx(audio_path, output_path="outputs/record.json", model_size="base
         error_str = str(e).lower()
         # Kiểm tra nếu là lỗi torchvision compatibility
         if "torchvision" in error_str or "nms" in error_str or "extension" in error_str:
-            print(f"[whisperx] ❌ Torchvision compatibility error detected - transcribe_whisperx.py:120", flush=True)
-            print(f"[whisperx] 💡 To fix: Run 'python backend/scripts/fix_torchvision.py' - transcribe_whisperx.py:121", flush=True)
-            print(f"[whisperx] 💡 Or manually: pip uninstall torch torchvision -y && pip install torch torchvision - transcribe_whisperx.py:122", flush=True)
+            print(f"[whisperx] ❌ Torchvision compatibility error detected - transcribe_whisperx.py:124", flush=True)
+            print(f"[whisperx] 💡 To fix: Run 'python backend/scripts/fix_torchvision.py' - transcribe_whisperx.py:125", flush=True)
+            print(f"[whisperx] 💡 Or manually: pip uninstall torch torchvision y && pip install torch torchvision - transcribe_whisperx.py:126", flush=True)
             raise RuntimeError(
                 "Torchvision compatibility error. Please run fix_torchvision.py script or reinstall torch/torchvision. "
                 f"Original error: {e}"
             )
         
         # Nếu vẫn lỗi, thử không truyền compute_type
-        print(f"[whisperx] ⚠️  Error loading model with compute_type, trying without: {e} - transcribe_whisperx.py:127", flush=True)
+        print(f"[whisperx] ⚠️  Error loading model with compute_type, trying without: {e} - transcribe_whisperx.py:133", flush=True)
         try:
             model = whisperx.load_model(model_size, device)
         except Exception as e2:
-            print(f"[whisperx] ❌ Failed to load model: {e2} - transcribe_whisperx.py:130", flush=True)
+            print(f"[whisperx] ❌ Failed to load model: {e2} - transcribe_whisperx.py:137", flush=True)
             raise
 
     # Transcribe (language optional)
@@ -156,31 +156,31 @@ def run_whisperx(audio_path, output_path="outputs/record.json", model_size="base
     except (RuntimeError, OSError) as align_gpu_err:
         # Nếu lỗi CUDA khi align, thử fallback về CPU
         if ("cublas" in str(align_gpu_err).lower() or "cuda" in str(align_gpu_err).lower() or "dll" in str(align_gpu_err).lower()) and device == "cuda":
-            print(f"[whisperx] ⚠️  GPU error during alignment ({align_gpu_err}), trying CPU - transcribe_whisperx.py:100", flush=True)
+            print(f"[whisperx] ⚠️  GPU error during alignment ({align_gpu_err}), trying CPU - transcribe_whisperx.py:159", flush=True)
             try:
                 align_model, metadata = whisperx.load_align_model(language_code=detected_lang, device="cpu")
                 aligned_result = whisperx.align(result["segments"], align_model, metadata, audio_path, "cpu")
                 word_segments = aligned_result.get("word_segments") or []
             except Exception as cpu_err:
-                print(f"[whisperx] ⚠️  CPU alignment also failed: {cpu_err}, continuing without alignment - transcribe_whisperx.py:105", flush=True)
+                print(f"[whisperx] ⚠️  CPU alignment also failed: {cpu_err}, continuing without alignment - transcribe_whisperx.py:165", flush=True)
         else:
             raise
     except ValueError as e:
         # If alignment model doesn't exist for detected language, try English as fallback
         if detected_lang != "en":
-            print(f"[whisperx] Warning: No align-model for language '{detected_lang}', trying English fallback - transcribe_whisperx.py:69", flush=True)
+            print(f"[whisperx] Warning: No alignmodel for language '{detected_lang}', trying English fallback - transcribe_whisperx.py:171", flush=True)
             try:
                 align_model, metadata = whisperx.load_align_model(language_code="en", device=device)
                 aligned_result = whisperx.align(result["segments"], align_model, metadata, audio_path, device)
                 word_segments = aligned_result.get("word_segments") or []
             except Exception as fallback_err:
-                print(f"[whisperx] Warning: Could not align with English fallback either: {fallback_err} - transcribe_whisperx.py:75", flush=True)
+                print(f"[whisperx] Warning: Could not align with English fallback either: {fallback_err} - transcribe_whisperx.py:177", flush=True)
                 # Continue without alignment - still return transcription result
         else:
-            print(f"[whisperx] Warning: Could not align words: {e} - transcribe_whisperx.py:78", flush=True)
+            print(f"[whisperx] Warning: Could not align words: {e} - transcribe_whisperx.py:180", flush=True)
             # Continue without alignment - still return transcription result
     except Exception as e:
-        print(f"[whisperx] Warning: Alignment failed: {e}, continuing without alignment - transcribe_whisperx.py:81", flush=True)
+        print(f"[whisperx] Warning: Alignment failed: {e}, continuing without alignment - transcribe_whisperx.py:183", flush=True)
         # Continue without alignment - still return transcription result
 
     # Attach language per word (use word_segments from alignment if available)
@@ -213,7 +213,7 @@ def run_whisperx(audio_path, output_path="outputs/record.json", model_size="base
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
 
-    print(f"[whisperx] Saved result to: {output_path} - transcribe_whisperx.py:97", flush=True)
+    print(f"[whisperx] Saved result to: {output_path} - transcribe_whisperx.py:216", flush=True)
     return output
 
 def main():
@@ -232,9 +232,9 @@ def main():
         run_whisperx(input_path, output_path=output_path, model_size=args.model, language=args.lang, compute_type=args.compute_type)
         sys.exit(0)
     except Exception as e:
-        print("[whisperx] Error during transcription: - transcribe_whisperx.py:116", file=sys.stderr)
+        print("[whisperx] Error during transcription: - transcribe_whisperx.py:235", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
-        print(f"[whisperx] Failed: {str(e)} - transcribe_whisperx.py:118", file=sys.stderr)
+        print(f"[whisperx] Failed: {str(e)} - transcribe_whisperx.py:237", file=sys.stderr)
         sys.exit(2)
 
 if __name__ == "__main__":
