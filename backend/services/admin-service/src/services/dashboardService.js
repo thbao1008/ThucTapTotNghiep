@@ -1,3 +1,4 @@
+import { getProviderStatus } from "../../../ai-service/src/config/providerConfig.js";
 import pool from "../config/db.js";
 
 // Lấy thống kê tổng quan cho dashboard
@@ -12,7 +13,7 @@ export async function getDashboardStats() {
     const totalMentors = parseInt(mentorsResult.rows[0].count) || 0;
 
     // Tổng doanh thu: tính TẤT CẢ purchases khi được tạo (không phụ thuộc vào status)
-    // Doanh thu = tổng giá trị gói tại thời điểm purchase được tạo
+    // Giá trị đăng ký theo giá niêm yết hiện tại; không phải doanh thu đã thanh toán.
     const revenueResult = await pool.query(`
       SELECT COALESCE(SUM(p.price), 0) as total_revenue
       FROM purchases pur
@@ -29,10 +30,10 @@ export async function getDashboardStats() {
     const challengesResult = await pool.query(`SELECT COUNT(*) as count FROM challenges`);
     const totalChallenges = parseInt(challengesResult.rows[0].count) || 0;
 
-    // Tổng số người dùng (tất cả, không filter)
+    // Tài khoản đang hoạt động.
     const usersResult = await pool.query(`
       SELECT COUNT(*) as count 
-      FROM users
+      FROM users WHERE status = 'active'
     `);
     const totalActiveUsers = parseInt(usersResult.rows[0].count) || 0;
 
@@ -40,6 +41,7 @@ export async function getDashboardStats() {
       totalLearners,
       totalMentors,
       totalRevenue,
+      revenueBasis: "current_catalog_value",
       totalPackages,
       totalChallenges,
       totalActiveUsers
@@ -51,99 +53,20 @@ export async function getDashboardStats() {
 }
 
 // Lấy tần suất hoạt động của users (ai hoạt động nhiều nhất, ít nhất)
-export async function getRecentActivity(limit = 10) {
-  try {
-    // Tần suất hoạt động của học viên (speaking practice, challenge submissions)
-    const learnerActivity = await pool.query(`
-      SELECT 
-        u.id as user_id,
-        u.name as user_name,
-        u.email,
-        'learner' as actor_type,
-        COUNT(DISTINCT spr.id) as practice_count,
-        COUNT(DISTINCT s.id) as submission_count,
-        (COUNT(DISTINCT spr.id) + COUNT(DISTINCT s.id)) as total_activities,
-        MAX(GREATEST(
-          COALESCE(spr.created_at, '1970-01-01'::timestamp),
-          COALESCE(s.created_at, '1970-01-01'::timestamp)
-        )) as last_activity
-      FROM users u
-      JOIN learners l ON u.id = l.user_id
-      LEFT JOIN speaking_practice_sessions sps ON l.id = sps.learner_id
-      LEFT JOIN speaking_practice_rounds spr ON sps.id = spr.session_id 
-        AND spr.created_at >= NOW() - INTERVAL '7 days'
-      LEFT JOIN submissions s ON l.id = s.learner_id 
-        AND s.created_at >= NOW() - INTERVAL '7 days'
-      WHERE u.role = 'learner'
-      GROUP BY u.id, u.name, u.email
-      HAVING (COUNT(DISTINCT spr.id) + COUNT(DISTINCT s.id)) > 0
-      ORDER BY total_activities DESC, last_activity DESC
-      LIMIT $1
-    `, [Math.floor(limit / 2)]);
-
-    // Tần suất hoạt động của mentor (feedbacks, schedules)
-    const mentorActivity = await pool.query(`
-      SELECT 
-        u.id as user_id,
-        u.name as user_name,
-        u.email,
-        'mentor' as actor_type,
-        COUNT(DISTINCT f.id) as feedback_count,
-        COUNT(DISTINCT sch.id) as schedule_count,
-        (COUNT(DISTINCT f.id) + COUNT(DISTINCT sch.id)) as total_activities,
-        MAX(GREATEST(
-          COALESCE(f.created_at, '1970-01-01'::timestamp),
-          COALESCE(sch.created_at, '1970-01-01'::timestamp)
-        )) as last_activity
-      FROM users u
-      JOIN mentors m ON u.id = m.user_id
-      LEFT JOIN feedbacks f ON m.id = f.mentor_id 
-        AND f.created_at >= NOW() - INTERVAL '7 days'
-      LEFT JOIN schedules sch ON m.id = sch.mentor_id 
-        AND sch.created_at >= NOW() - INTERVAL '7 days'
-      WHERE u.role = 'mentor'
-      GROUP BY u.id, u.name, u.email
-      HAVING (COUNT(DISTINCT f.id) + COUNT(DISTINCT sch.id)) > 0
-      ORDER BY total_activities DESC, last_activity DESC
-      LIMIT $1
-    `, [Math.floor(limit / 2)]);
-
-    // Kết hợp và sắp xếp theo tần suất (nhiều nhất -> ít nhất)
-    const allActivity = [
-      ...learnerActivity.rows.map(r => ({
-        user_id: r.user_id,
-        user_name: r.user_name,
-        email: r.email,
-        actor_type: 'learner',
-        activity_count: parseInt(r.total_activities) || 0,
-        practice_count: parseInt(r.practice_count) || 0,
-        submission_count: parseInt(r.submission_count) || 0,
-        last_activity: r.last_activity
-      })),
-      ...mentorActivity.rows.map(r => ({
-        user_id: r.user_id,
-        user_name: r.user_name,
-        email: r.email,
-        actor_type: 'mentor',
-        activity_count: parseInt(r.total_activities) || 0,
-        feedback_count: parseInt(r.feedback_count) || 0,
-        schedule_count: parseInt(r.schedule_count) || 0,
-        last_activity: r.last_activity
-      }))
-    ].sort((a, b) => {
-      // Sắp xếp theo tần suất (nhiều nhất -> ít nhất)
-      if (b.activity_count !== a.activity_count) {
-        return b.activity_count - a.activity_count;
-      }
-      // Nếu bằng nhau, sắp xếp theo thời gian hoạt động gần nhất
-      return new Date(b.last_activity) - new Date(a.last_activity);
-    }).slice(0, limit);
-
-    return allActivity;
-  } catch (err) {
-    console.error("Error getRecentActivity:", err);
-    throw err;
-  }
+export async function getRecentActivity(limit=10) {
+  const safeLimit=Math.max(1,Math.min(100,Number.parseInt(limit,10)||10));
+  const {rows}=await pool.query(`WITH events AS (
+    SELECT l.user_id,'practice' AS kind,r.created_at AS at FROM speaking_practice_rounds r JOIN speaking_practice_sessions s ON s.id=r.session_id JOIN learners l ON l.id=s.learner_id
+    UNION ALL SELECT l.user_id,'submission',s.created_at FROM submissions s JOIN learners l ON l.id=s.learner_id
+    UNION ALL SELECT l.user_id,'world',w.updated_at FROM scenario_world_sessions w JOIN learners l ON l.id=w.learner_id WHERE w.status='completed' AND w.revision>0
+    UNION ALL SELECT m.user_id,'feedback',f.created_at FROM feedbacks f JOIN mentors m ON m.id=f.mentor_id
+    UNION ALL SELECT m.user_id,'schedule',c.created_at FROM online_classes c JOIN mentors m ON m.id=c.mentor_id WHERE c.status='scheduled'
+  ) SELECT u.id AS user_id,u.name AS user_name,u.email,u.role AS actor_type,COUNT(*)::int AS activity_count,MAX(e.at) AS last_activity,
+    COUNT(*) FILTER (WHERE kind='practice')::int AS practice_count,COUNT(*) FILTER (WHERE kind='submission')::int AS submission_count,
+    COUNT(*) FILTER (WHERE kind='world')::int AS scenario_world_count,COUNT(*) FILTER (WHERE kind='feedback')::int AS feedback_count,COUNT(*) FILTER (WHERE kind='schedule')::int AS schedule_count
+    FROM events e JOIN users u ON u.id=e.user_id WHERE e.at>=NOW()-INTERVAL '7 days' AND e.at<=NOW()
+    GROUP BY u.id,u.name,u.email,u.role ORDER BY activity_count DESC,last_activity DESC,u.id DESC LIMIT $1`,[safeLimit]);
+  return rows;
 }
 
 // Lấy traffic stats
@@ -170,7 +93,7 @@ export async function getTrafficStats() {
     const onlineUsers = loggedInUsers + anonymousSessions;
 
     // Traffic hôm nay
-    const today = new Date().toISOString().split('T')[0];
+    const today = new Intl.DateTimeFormat('en-CA', {timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
     const todayTrafficResult = await pool.query(`
       SELECT total_requests, unique_visitors
       FROM daily_traffic_stats
@@ -211,171 +134,9 @@ export async function getTrafficStats() {
   }
 }
 
-// Lấy tiến trình AiESP học tập và token usage
+// Safe provider configuration; no inferred quota or model accuracy.
 export async function getAIProgress() {
-  try {
-    // Lấy thông tin từ assistant_ai_training (AiESP training data)
-    let trainingSamples = 0;
-    let newSamples = 0;
-    try {
-    const trainingSamplesResult = await pool.query(`
-      SELECT COUNT(*) as count 
-        FROM assistant_ai_training
-    `);
-      trainingSamples = parseInt(trainingSamplesResult.rows[0].count) || 0;
-    } catch (e) {
-      console.warn("Table assistant_ai_training may not exist:", e.message);
-    }
-
-    // Lấy thông tin từ assistant_ai_models (AiESP models)
-    let models = [];
-    let totalModels = 0;
-    try {
-      const modelsResult = await pool.query(`
-        SELECT 
-          task_type,
-          accuracy_score,
-          trained_at,
-          model_state
-        FROM assistant_ai_models
-        ORDER BY trained_at DESC
-      `);
-      models = modelsResult.rows || [];
-      totalModels = models.length;
-    } catch (e) {
-      console.warn("Table assistant_ai_models may not exist:", e.message);
-    }
-    
-    // Tính accuracy trung bình
-    let avgAccuracy = null;
-    if (models.length > 0) {
-      const accuracies = models
-        .map(m => parseFloat(m.accuracy_score))
-        .filter(a => !isNaN(a));
-      if (accuracies.length > 0) {
-        avgAccuracy = accuracies.reduce((sum, a) => sum + a, 0) / accuracies.length;
-      }
-    }
-
-    // Lấy số lượng training data mới (chưa train)
-    try {
-      const newSamplesResult = await pool.query(`
-      SELECT COUNT(*) as count 
-        FROM assistant_ai_training
-        WHERE created_at > (
-          SELECT COALESCE(MAX(trained_at), '1970-01-01')
-          FROM assistant_ai_models
-        )
-      `);
-      newSamples = parseInt(newSamplesResult.rows[0].count) || 0;
-    } catch (e) {
-      console.warn("Could not get new samples:", e.message);
-    }
-
-    // Kiểm tra token usage (ước tính từ OpenRouter calls)
-    // Ước tính từ số lượng training data (mỗi training data = 1 lần gọi OpenRouter)
-    let tokenUsage = {
-      total: 0,
-      today: 0,
-      thisMonth: 0,
-      limit: process.env.OPENROUTER_TOKEN_LIMIT ? parseInt(process.env.OPENROUTER_TOKEN_LIMIT) : 1000000 // Default 1M tokens
-    };
-
-    try {
-      // Đếm số lần gọi OpenRouter (ước tính từ training data)
-      // Mỗi record trong assistant_ai_training = 1 lần gọi OpenRouter để học
-      const tokenUsageResult = await pool.query(`
-        SELECT 
-          COUNT(*) as total_calls,
-          COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE) as today_calls,
-          COUNT(*) FILTER (WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)) as month_calls
-        FROM assistant_ai_training
-      `);
-      
-      if (tokenUsageResult.rows.length > 0) {
-        const row = tokenUsageResult.rows[0];
-        // Ước tính: mỗi call ~500 tokens (input + output)
-        // Có thể điều chỉnh dựa trên thực tế
-        const tokensPerCall = 500;
-        tokenUsage.total = parseInt(row.total_calls) * tokensPerCall;
-        tokenUsage.today = parseInt(row.today_calls) * tokensPerCall;
-        tokenUsage.thisMonth = parseInt(row.month_calls) * tokensPerCall;
-      }
-    } catch (e) {
-      console.warn("Could not calculate token usage:", e.message);
-    }
-
-    // Status dựa trên accuracy và training samples
-    let status = 'initializing';
-    if (trainingSamples > 0) {
-      if (avgAccuracy !== null) {
-        status = avgAccuracy >= 0.85 ? 'excellent' : avgAccuracy >= 0.70 ? 'good' : 'training';
-      } else {
-        status = 'training';
-      }
-    }
-
-    // Task types breakdown
-    const taskTypes = ['conversation_ai', 'translation_check', 'speaking_practice', 'game_conversation'];
-    const taskTypeStats = {};
-    
-    for (const taskType of taskTypes) {
-      try {
-        const taskModels = models.filter(m => m.task_type === taskType);
-        let taskTrainingCount = 0;
-        try {
-          const taskTraining = await pool.query(`
-            SELECT COUNT(*) as count
-            FROM assistant_ai_training
-            WHERE task_type = $1
-          `, [taskType]);
-          taskTrainingCount = parseInt(taskTraining.rows[0].count) || 0;
-        } catch (e) {
-          // Table may not exist
-        }
-        
-        taskTypeStats[taskType] = {
-          modelCount: taskModels.length,
-          trainingSamples: taskTrainingCount,
-          latestAccuracy: taskModels.length > 0 ? parseFloat(taskModels[0].accuracy_score) : null,
-          latestTrained: taskModels.length > 0 ? taskModels[0].trained_at : null
-        };
-      } catch (e) {
-        console.warn(`Error getting stats for ${taskType}:`, e.message);
-        taskTypeStats[taskType] = {
-          modelCount: 0,
-          trainingSamples: 0,
-          latestAccuracy: null,
-          latestTrained: null
-        };
-      }
-    }
-
-    return {
-      // AiESP Learning Progress
-      trainingSamples,
-      newSamples,
-      totalModels,
-      accuracy: avgAccuracy,
-      status,
-      taskTypes: taskTypeStats,
-      
-      // Token Usage
-      tokenUsage: {
-        used: tokenUsage.total,
-        usedToday: tokenUsage.today,
-        usedThisMonth: tokenUsage.thisMonth,
-        limit: tokenUsage.limit,
-        percentage: tokenUsage.limit > 0 ? (tokenUsage.total / tokenUsage.limit * 100) : 0,
-        status: tokenUsage.limit > 0 
-          ? (tokenUsage.total / tokenUsage.limit > 0.9 ? 'warning' : tokenUsage.total / tokenUsage.limit > 0.7 ? 'caution' : 'ok')
-          : 'ok'
-      }
-    };
-  } catch (err) {
-    console.error("Error getAIProgress:", err);
-    throw err;
-  }
+  return { ...getProviderStatus(), tokenUsage: null, usageMeasured: false };
 }
 
 // Lấy dữ liệu biểu đồ cho Dashboard với timeframe và period offset

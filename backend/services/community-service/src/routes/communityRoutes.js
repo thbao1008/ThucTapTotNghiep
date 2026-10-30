@@ -19,7 +19,7 @@ function getProjectRoot() {
   const __dirname = path.dirname(__filename);
   // __dirname = backend/services/community-service/src/routes
   // Đi lên 3 cấp: routes -> src -> community-service -> services -> backend
-  return path.resolve(__dirname, "..", "..", "..");
+  return path.resolve(__dirname, "..", "..", "..", "..");
 }
 
 // Ensure uploads directory exists at backend/uploads
@@ -53,8 +53,8 @@ router.post("/posts/:id/review", authGuard, adminGuard, communityCtrl.reviewPost
 router.delete("/posts/:id", authGuard, communityCtrl.deletePost);
 router.patch("/posts/:id/pin", authGuard, adminGuard, communityCtrl.togglePinPost);
 
-router.post("/posts/:postId/comments", authGuard, upload.single('audio'), communityCtrl.createComment);
-router.get("/posts/:postId/comments", authGuard, communityCtrl.getComments);
+router.post("/posts/:postId/comments", authGuard, communityCtrl.readablePostGuard, upload.single('audio'), communityCtrl.createComment);
+router.get("/posts/:postId/comments", authGuard, communityCtrl.readablePostGuard, communityCtrl.getComments);
 router.delete("/comments/:id", authGuard, communityCtrl.deleteComment);
 
 router.post("/likes", authGuard, communityCtrl.toggleLike);

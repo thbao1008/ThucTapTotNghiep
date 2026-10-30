@@ -1,14 +1,17 @@
+import { englishText } from '../i18n/uiLanguage.js';
 ﻿import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import Brand from "../components/common/Brand.jsx";
+import {TranslationToggle, UiText } from "../i18n/UiLanguage.jsx";
 import { login as apiLogin } from "../services/authService";
 import { saveAuth } from "../utils/auth";
+import { useAuth } from "../context/AuthContext";
 import api from "../api.js";
 import "../styles/login.css";
 
-import logo from "../assets/images/logo.png";
-import bg from "../assets/images/background.png";
 
 export default function Login({ onLogin }) {
+  const context = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(false);
@@ -37,11 +40,13 @@ export default function Login({ onLogin }) {
 
     setLoading(true);
     try {
-      const result = await apiLogin(identifier.trim(), password);
+      const result = context?.login
+        ? await context.login(identifier.trim(), password, remember)
+        : await apiLogin(identifier.trim(), password);
       const { token, user } = result;
       if (!token || !user) throw new Error("Phản hồi đăng nhập không hợp lệ");
 
-      saveAuth({ token, user }, remember);
+      if (!context?.login) saveAuth({ token, user }, remember);
       onLogin?.(user);
 
       document.body.classList.remove("theme-admin", "theme-mentor", "theme-learner");
@@ -185,10 +190,10 @@ export default function Login({ onLogin }) {
 
   return (
     <div className="login-wrap">
+      <div className="public-language-bar"><TranslationToggle /></div>
       {/* Background */}
       <div
         className="hero-bg"
-        style={{ backgroundImage: `url(${bg})` }}
       />
 
       {/* Logo */}
@@ -196,40 +201,40 @@ export default function Login({ onLogin }) {
         className="brand cursor-pointer transition-transform duration-200 hover:scale-105 hover:opacity-90"
         onClick={() => navigate("/")}
       >
-        <img src={logo} alt="AESP Logo" className="brand-logo" />
+        <Brand />
       </div>
 
       {/* Card */}
       <div className="login-card">
         {mode === "login" && (
           <>
-            <h1 className="card-title">Đăng nhập luyện nói tiếng Anh</h1>
-            <p className="card-subtitle">
-              Talk fluently every day with authentic AI English partner
-            </p>
+            <h1 className="card-title"><UiText text={"Đăng nhập luyện nói tiếng Anh"} /></h1>
+            <p className="card-subtitle">{" "}<UiText text={"A little practice. A more confident you."} />{" "}</p>
 
             <form className="form" onSubmit={handleLogin} noValidate>
               <div className="field">
-                <label className="label">Email hoặc Số điện thoại</label>
+                <label className="label" htmlFor="login-identifier"><UiText text={"Email hoặc Số điện thoại"} /></label>
                 <input
+                  id="login-identifier"
                   type="text"
                   className={`input ${error ? "error" : ""}`}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="Nhập email hoặc số điện thoại"
+                  placeholder={englishText("Nhập email hoặc số điện thoại")}
                   autoComplete="username"
                 />
               </div>
 
               <div className="field">
-                <label className="label">Mật khẩu</label>
+                <label className="label" htmlFor="login-password"><UiText text={"Mật khẩu"} /></label>
                 <div className="input-group password-group">
                   <input
+                    id="login-password"
                     type={showPassword ? "text" : "password"}
                     className={`input ${error ? "error" : ""}`}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Mật khẩu"
+                    placeholder={englishText("Mật khẩu")}
                     autoComplete="current-password"
                   />
                   <button
@@ -237,7 +242,7 @@ export default function Login({ onLogin }) {
                     className="toggle-password"
                     onClick={() => setShowPassword((s) => !s)}
                   >
-                    {showPassword ? "Ẩn" : "Hiện"}
+                    <UiText>{showPassword ? "Ẩn" : "Hiện"}</UiText>
                   </button>
                 </div>
               </div>
@@ -249,7 +254,7 @@ export default function Login({ onLogin }) {
                     checked={remember}
                     onChange={(e) => setRemember(e.target.checked)}
                   />
-                  <span>Ghi nhớ</span>
+                  <span><UiText text={"Ghi nhớ"} /></span>
                 </label>
 
                 <button
@@ -259,28 +264,22 @@ export default function Login({ onLogin }) {
                     resetForgotPassword();
                     setMode("forgot-step1");
                   }}
-                >
-                  Quên mật khẩu?
-                </button>
+                >{" "}<UiText text={"Quên mật khẩu?"} />{" "}</button>
               </div>
 
-              {error && <div className="error">{error}</div>}
-              {message && <div className="note">{message}</div>}
+              {error && <div className="error"><UiText>{error}</UiText></div>}
+              {message && <div className="note"><UiText>{message}</UiText></div>}
 
               <button
                 className={`button ${loading ? "loading" : ""}`}
                 type="submit"
                 disabled={loading}
               >
-                {loading ? "Đang xử lý..." : "Đăng nhập"}
+                <UiText>{loading ? "Đang xử lý..." : "Đăng nhập"}</UiText>
               </button>
             </form>
 
-            <div className="support-note">
-              Tài khoản được tạo bởi quản trị viên. Cần hỗ trợ?{" "}
-              <a href="tel:0123456789">
-                <strong>0123456789</strong>
-              </a>
+            <div className="support-note">{" "}<UiText text={"Tài khoản được tạo bởi quản trị viên. Cần hỗ trợ?"} />{" "}
             </div>
           </>
         )}
@@ -288,29 +287,27 @@ export default function Login({ onLogin }) {
         {/* Step 1: Nhập email/phone */}
         {mode === "forgot-step1" && (
           <>
-            <h1 className="card-title">Quên mật khẩu</h1>
-            <p className="card-subtitle">Nhập email hoặc số điện thoại để lấy câu hỏi bảo mật</p>
+            <h1 className="card-title"><UiText text={"Quên mật khẩu"} /></h1>
+            <p className="card-subtitle"><UiText text={"Nhập email hoặc số điện thoại để lấy câu hỏi bảo mật"} /></p>
 
             <form className="form" onSubmit={handleForgotStep1} noValidate>
               <div className="field">
-                <label className="label">Email hoặc Số điện thoại</label>
+                <label className="label"><UiText text={"Email hoặc Số điện thoại"} /></label>
                 <input
                   type="text"
                   className={`input ${error ? "error" : ""}`}
                   value={identifier}
                   onChange={(e) => setIdentifier(e.target.value)}
-                  placeholder="Nhập email hoặc số điện thoại"
+                  placeholder={englishText("Nhập email hoặc số điện thoại")}
                   autoComplete="username"
                 />
               </div>
 
-              {error && <div className="error">{error}</div>}
-              {message && <div className="note">{message}</div>}
+              {error && <div className="error"><UiText>{error}</UiText></div>}
+              {message && <div className="note"><UiText>{message}</UiText></div>}
 
               <div className="helper-row">
-                <button type="button" className="help-link" onClick={resetForgotPassword}>
-                  ← Quay lại đăng nhập
-                </button>
+                <button type="button" className="help-link" onClick={resetForgotPassword}>{" "}<UiText text={"← Quay lại đăng nhập"} />{" "}</button>
               </div>
 
               <button
@@ -318,7 +315,7 @@ export default function Login({ onLogin }) {
                 type="submit"
                 disabled={loading}
               >
-                {loading ? "Đang xử lý..." : "Tiếp theo"}
+                <UiText>{loading ? "Đang xử lý..." : "Tiếp theo"}</UiText>
               </button>
             </form>
           </>
@@ -327,36 +324,34 @@ export default function Login({ onLogin }) {
         {/* Step 2: Trả lời câu hỏi bảo mật */}
         {mode === "forgot-step2" && (
           <>
-            <h1 className="card-title">Câu hỏi bảo mật</h1>
-            <p className="card-subtitle">Vui lòng trả lời câu hỏi bảo mật của bạn</p>
+            <h1 className="card-title"><UiText text={"Câu hỏi bảo mật"} /></h1>
+            <p className="card-subtitle"><UiText text={"Vui lòng trả lời câu hỏi bảo mật của bạn"} /></p>
 
             <form className="form" onSubmit={handleForgotStep2} noValidate>
               <div className="field">
-                <label className="label">Câu hỏi bảo mật</label>
+                <label className="label"><UiText text={"Câu hỏi bảo mật"} /></label>
                 <div className="security-question-box">
-                  {securityQuestion}
+                  <UiText>{securityQuestion}</UiText>
                 </div>
               </div>
 
               <div className="field">
-                <label className="label">Câu trả lời</label>
+                <label className="label"><UiText text={"Câu trả lời"} /></label>
                 <input
                   type="text"
                   className={`input ${error ? "error" : ""}`}
                   value={securityAnswer}
                   onChange={(e) => setSecurityAnswer(e.target.value)}
-                  placeholder="Nhập câu trả lời"
+                  placeholder={englishText("Nhập câu trả lời")}
                   autoComplete="off"
                 />
               </div>
 
-              {error && <div className="error">{error}</div>}
-              {message && <div className="note">{message}</div>}
+              {error && <div className="error"><UiText>{error}</UiText></div>}
+              {message && <div className="note"><UiText>{message}</UiText></div>}
 
               <div className="helper-row">
-                <button type="button" className="help-link" onClick={() => setMode("forgot-step1")}>
-                  ← Quay lại
-                </button>
+                <button type="button" className="help-link" onClick={() => setMode("forgot-step1")}>{" "}<UiText text={"← Quay lại"} />{" "}</button>
               </div>
 
               <button
@@ -364,7 +359,7 @@ export default function Login({ onLogin }) {
                 type="submit"
                 disabled={loading}
               >
-                {loading ? "Đang xử lý..." : "Xác nhận"}
+                <UiText>{loading ? "Đang xử lý..." : "Xác nhận"}</UiText>
               </button>
             </form>
           </>
@@ -373,41 +368,39 @@ export default function Login({ onLogin }) {
         {/* Step 3: Đặt mật khẩu mới */}
         {mode === "forgot-step3" && (
           <>
-            <h1 className="card-title">Đặt mật khẩu mới</h1>
-            <p className="card-subtitle">Nhập mật khẩu mới cho tài khoản của bạn</p>
+            <h1 className="card-title"><UiText text={"Đặt mật khẩu mới"} /></h1>
+            <p className="card-subtitle"><UiText text={"Nhập mật khẩu mới cho tài khoản của bạn"} /></p>
 
             <form className="form" onSubmit={handleForgotStep3} noValidate>
               <div className="field">
-                <label className="label">Mật khẩu mới</label>
+                <label className="label"><UiText text={"Mật khẩu mới"} /></label>
                 <input
                   type="password"
                   className={`input ${error ? "error" : ""}`}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
-                  placeholder="Nhập mật khẩu mới (tối thiểu 8 ký tự, có chữ hoa, thường, số và ký tự đặc biệt)"
+                  placeholder={englishText("Nhập mật khẩu mới (tối thiểu 8 ký tự, có chữ hoa, thường, số và ký tự đặc biệt)")}
                   autoComplete="new-password"
                 />
               </div>
 
               <div className="field">
-                <label className="label">Xác nhận mật khẩu</label>
+                <label className="label"><UiText text={"Xác nhận mật khẩu"} /></label>
                 <input
                   type="password"
                   className={`input ${error ? "error" : ""}`}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
-                  placeholder="Nhập lại mật khẩu mới"
+                  placeholder={englishText("Nhập lại mật khẩu mới")}
                   autoComplete="new-password"
                 />
               </div>
 
-              {error && <div className="error">{error}</div>}
-              {message && <div className="note">{message}</div>}
+              {error && <div className="error"><UiText>{error}</UiText></div>}
+              {message && <div className="note"><UiText>{message}</UiText></div>}
 
               <div className="helper-row">
-                <button type="button" className="help-link" onClick={() => setMode("forgot-step2")}>
-                  ← Quay lại
-                </button>
+                <button type="button" className="help-link" onClick={() => setMode("forgot-step2")}>{" "}<UiText text={"← Quay lại"} />{" "}</button>
               </div>
 
               <button
@@ -415,7 +408,7 @@ export default function Login({ onLogin }) {
                 type="submit"
                 disabled={loading}
               >
-                {loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}
+                <UiText>{loading ? "Đang xử lý..." : "Đặt lại mật khẩu"}</UiText>
               </button>
             </form>
           </>

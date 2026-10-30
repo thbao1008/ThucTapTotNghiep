@@ -1,35 +1,97 @@
-// AI Service - OpenRouter integration
+// AI Service - Groq integration
 import { exec } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import dotenv from "dotenv";
+import { resolveProviderConfig } from "../config/providerConfig.js";
 
-// Load .env from backend/ai_models/.env
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-// Go up from ai-service/src/services to backend root
 const backendRoot = path.resolve(__dirname, "..", "..", "..", "..");
-// Try backend/ai_models/.env first, then fallback to backend/.env
-const envPath1 = path.resolve(backendRoot, "ai_models", ".env");
-const envPath2 = path.resolve(backendRoot, ".env");
-if (fs.existsSync(envPath1)) {
-  dotenv.config({ path: envPath1 });
-  console.log(`✅ Loaded .env from: ${envPath1}`);
-} else if (fs.existsSync(envPath2)) {
-  dotenv.config({ path: envPath2 });
-  console.log(`✅ Loaded .env from: ${envPath2}`);
-} else {
-  console.warn(`⚠️ .env file not found at ${envPath1} or ${envPath2}`);
-  dotenv.config(); // Try default locations
+const MAX_INPUT_CHARACTERS = 32_000;
+const MAX_MESSAGES = 40;
+const MAX_OUTPUT_TOKENS = 4096;
+const TRANSIENT_RETRY_LIMIT = 1;
+
+function createAIError(message, status, code, properties = {}) {
+  return Object.assign(new Error(message), { status, code, ...properties });
 }
 
-const OR_BASE = process.env.OPENROUTER_API_BASE || "https://openrouter.ai/api/v1";
-const OR_KEY = process.env.OPENROUTER_API_KEY;
-const OR_MODEL = process.env.OPENROUTER_MODEL || "gpt-4o-mini";
+function validateMessages(messages) {
+  if (!Array.isArray(messages) || messages.length === 0 || messages.length > MAX_MESSAGES) {
+    throw createAIError(
+      `messages must contain between 1 and ${MAX_MESSAGES} entries`,
+      400,
+      "AI_REQUEST_INVALID"
+    );
+  }
 
-if (!OR_KEY) {
-  console.warn("OpenRouter key not set. Set OPENROUTER_API_KEY in .env - ai-service aiService.js:11");
+  let totalCharacters = 0;
+  for (const message of messages) {
+    if (
+      !message ||
+      typeof message !== "object" ||
+      !["system", "user", "assistant"].includes(message.role) ||
+      typeof message.content !== "string"
+    ) {
+      throw createAIError(
+        "Each message must have a supported role and string content",
+        400,
+        "AI_REQUEST_INVALID"
+      );
+    }
+    totalCharacters += message.content.length;
+    if (totalCharacters > MAX_INPUT_CHARACTERS) {
+      throw createAIError("AI input exceeds the configured size limit", 413, "AI_INPUT_TOO_LARGE");
+    }
+  }
+}
+
+function positiveInteger(value, fallback, maximum) {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed < 1) return fallback;
+  return Math.min(parsed, maximum);
+}
+
+function resolveModel(options, env, config) {
+  const taskType = typeof options.task_type === "string"
+    ? options.task_type.trim().toUpperCase().replace(/[^A-Z0-9]+/g, "_")
+    : "";
+  const taskModel = taskType
+    ? env[`${config.prefix}_MODEL_${taskType}`]
+    : undefined;
+  // Groq never inherits an Groq model or a caller's paid-provider default.
+  return taskModel || config.model;
+}
+
+function normalizeCompletion(response, provider) {
+  const choice = response?.choices?.[0];
+  const content = choice?.message?.content;
+  if (choice?.finish_reason === "length") {
+    throw createAIError("Groq response exceeded its output limit", 502, "AI_RESPONSE_TRUNCATED");
+  }
+  if (typeof content !== "string" || !content.trim() || ["content_filter", "error"].includes(choice?.finish_reason)) {
+    throw createAIError(
+      "Groq returned an unsupported or empty response",
+      502,
+      "AI_RESPONSE_INVALID"
+    );
+  }
+
+  return {
+    provider,
+    id: typeof response.id === "string" ? response.id : null,
+    model: typeof response.model === "string" ? response.model : null,
+    choices: [{
+      index: Number.isInteger(choice.index) ? choice.index : 0,
+      message: {
+        role: typeof choice.message.role === "string" ? choice.message.role : "assistant",
+        content
+      },
+      finish_reason: typeof choice.finish_reason === "string" ? choice.finish_reason : null
+    }],
+    usage: response.usage && typeof response.usage === "object" ? response.usage : null
+  };
 }
 
 /**
@@ -45,142 +107,153 @@ async function getFetch() {
   }
 }
 
-/**
- * callAiESP - Call OpenRouter for AI responses (AiESP is for learning only)
- * messages: [{role, content}, ...]
- * opts: {task_type, temperature, max_tokens}
- */
-export async function callAiESP(messages, opts = {}) {
-  // Always use OpenRouter for responses, AiESP is for learning only
-  return await callOpenRouter(messages, { ...opts, use_aiesp: false });
+/** Call Groq directly without local model training or transcript capture. */
+export async function callGroq(messages, opts = {}) {
+  return callGroqWithDependencies(messages, opts);
 }
 
-/**
- * callOpenRouter - generic wrapper to call OpenRouter-like chat completions
- * Mặc định dùng OpenRouter, có thể dùng AiESP cho training (use_aiesp: true)
- * messages: [{role, content}, ...]
- * opts: {temperature, max_tokens, task_type, use_aiesp}
- */
-export async function callOpenRouter(messages, opts = {}) {
-  // Chỉ dùng AiESP nếu explicitly yêu cầu (cho training)
-  const useAiESP = opts.use_aiesp === true;
-  
-  if (useAiESP) {
-    try {
-      const result = await callAiESP(messages, opts);
-      return result;
-    } catch (err) {
-      console.warn(`⚠️ AiESP failed, falling back to OpenRouter: ${err.message}`);
-      // Fall through to OpenRouter
-    }
-  }
-  
-  // Mặc định dùng OpenRouter
-  if (!OR_KEY) {
-    const err = new Error("AI provider not configured (OPENROUTER_API_KEY missing)");
-    err.status = 503;
-    err.code = "API_KEY_MISSING";
-    throw err;
-  }
-  
-  const fetchFn = await getFetch();
-  const model = opts.model || OR_MODEL;
-  const body = {
-    model: model,
-    messages,
-    temperature: opts.temperature ?? 0.7,
-    max_tokens: opts.max_tokens ?? 800
-  };
+export async function callGroqWithDependencies(
+  messages,
+  opts = {},
+  {
+    env = process.env,
+    fetchImpl,
+    sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds))
+  } = {}
+) {
+  validateMessages(messages);
 
-  const res = await fetchFn(`${OR_BASE}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${OR_KEY}`
-    },
-    body: JSON.stringify(body)
+  const config = resolveProviderConfig(env);
+  const apiKey = config.apiKey;
+  if (typeof apiKey !== "string" || !apiKey.trim()) {
+    throw createAIError(`${config.label} is not configured`, 503, "AI_PROVIDER_NOT_CONFIGURED");
+  }
+
+  const baseUrl = config.baseUrl;
+  let endpoint;
+  try {
+    const normalizedBaseUrl = baseUrl.endsWith("/") ? baseUrl : `${baseUrl}/`;
+    endpoint = new URL("chat/completions", normalizedBaseUrl);
+  } catch {
+    throw createAIError("Groq API base URL is invalid", 503, "AI_PROVIDER_CONFIG_INVALID");
+  }
+  if (endpoint.protocol !== "https:") {
+    throw createAIError("Groq API base URL must use HTTPS", 503, "AI_PROVIDER_CONFIG_INVALID");
+  }
+
+  const model = resolveModel(opts, env, config);
+  if (typeof model !== "string" || !model.trim() || model.length > 200) {
+    throw createAIError("Groq model configuration is invalid", 503, "AI_PROVIDER_CONFIG_INVALID");
+  }
+  const configuredTokenLimit = positiveInteger(config.tokenLimit, MAX_OUTPUT_TOKENS, MAX_OUTPUT_TOKENS);
+  const requestedTokenLimit = opts.max_tokens === undefined
+    ? Math.min(800, configuredTokenLimit)
+    : Number(opts.max_tokens);
+  if (!Number.isInteger(requestedTokenLimit) || requestedTokenLimit < 1) {
+    throw createAIError("max_tokens must be a positive integer", 400, "AI_REQUEST_INVALID");
+  }
+  const maxTokens = Math.min(requestedTokenLimit, configuredTokenLimit);
+  const temperature = opts.temperature === undefined ? 0.7 : Number(opts.temperature);
+  if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
+    throw createAIError("temperature must be between 0 and 2", 400, "AI_REQUEST_INVALID");
+  }
+  if (opts.stream === true) {
+    throw createAIError("Streaming responses are not supported by this endpoint", 400, "AI_REQUEST_INVALID");
+  }
+  if (opts.response_format !== undefined &&
+      (opts.response_format?.type !== "json_object" || Object.keys(opts.response_format).length !== 1)) {
+    throw createAIError("Only JSON object response format is supported", 400, "AI_REQUEST_INVALID");
+  }
+
+  const configuredTimeout = positiveInteger(config.timeout, 45_000, 120_000);
+  if (opts.reasoning_effort !== undefined && !['low','medium','high'].includes(opts.reasoning_effort)) {
+    throw createAIError('Unsupported reasoning effort',400,'AI_REQUEST_INVALID');
+  }
+  const body = JSON.stringify({
+    model,
+    messages,
+    temperature,
+    max_tokens: maxTokens,
+    ...(/^openai\/gpt-oss-(20b|120b)$/.test(model) && opts.reasoning_effort ? {reasoning_effort:opts.reasoning_effort} : {}),
+    ...(opts.response_format ? { response_format: { type: "json_object" } } : {})
   });
 
-  if (!res.ok) {
-    const txt = await res.text().catch(() => "<no body>");
-    let errorMessage = `AI provider error ${res.status}: ${txt}`;
-    
-    // Provide helpful error messages
-    if (res.status === 401) {
+  const fetchFn = fetchImpl || await getFetch();
+  const url = endpoint.toString();
+  let attempt = 0;
+  while (true) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), configuredTimeout);
+    let response;
+    let parsed;
+    try {
+      response = await fetchFn(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`
+        },
+        body,
+        redirect: "error",
+        signal: controller.signal
+      });
       try {
-        const errorJson = JSON.parse(txt);
-        if (errorJson.error?.message?.includes("User not found")) {
-          errorMessage = `OpenRouter API key is invalid or expired. Please check your OPENROUTER_API_KEY in .env file. Original error: ${txt}`;
-        } else {
-          errorMessage = `OpenRouter authentication failed. Please verify your OPENROUTER_API_KEY. Original error: ${txt}`;
-        }
-      } catch (e) {
-        errorMessage = `OpenRouter authentication failed (401). Please check your OPENROUTER_API_KEY in .env file.`;
+        parsed = await response.json();
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+        if (response.ok) throw createAIError("Groq returned invalid JSON", 502, "AI_RESPONSE_INVALID");
+        parsed = null;
       }
-    } else if (res.status === 429) {
-      errorMessage = `OpenRouter rate limit exceeded. Please try again later. Original error: ${txt}`;
-    } else if (res.status === 402) {
-      // Parse error để lấy số tokens có thể afford
-      try {
-        const errorJson = JSON.parse(txt);
-        const errorMsg = errorJson.error?.message || txt;
-        // Extract số tokens có thể afford từ message
-        const affordMatch = errorMsg.match(/can only afford (\d+)/i);
-        const maxAffordableTokens = affordMatch ? parseInt(affordMatch[1]) : null;
-        
-        errorMessage = `OpenRouter payment required. Please check your account balance. Original error: ${txt}`;
-        
-        const err = new Error(errorMessage);
-        err.status = res.status;
-        err.code = "PAYMENT_REQUIRED";
-        err.maxAffordableTokens = maxAffordableTokens; // Thêm thông tin tokens có thể afford
-        throw err;
-      } catch (e) {
-        // Nếu e là error đã throw ở trên, re-throw nó
-        if (e.status === 402 && e.code === "PAYMENT_REQUIRED") {
-          throw e;
-        }
-        // Nếu là lỗi parse JSON, tạo error mới
-        errorMessage = `OpenRouter payment required. Please check your account balance. Original error: ${txt}`;
-        const err = new Error(errorMessage);
-        err.status = res.status;
-        err.code = "PAYMENT_REQUIRED";
-        throw err;
+    } catch (err) {
+      clearTimeout(timeoutId);
+      if (controller.signal.aborted) {
+        throw createAIError("Groq request timed out", 504, "AI_TIMEOUT");
       }
+      if (err.code === "AI_RESPONSE_INVALID") throw err;
+      if (attempt < TRANSIENT_RETRY_LIMIT) {
+        attempt += 1;
+        await sleep(250);
+        continue;
+      }
+      throw createAIError("Groq is unavailable", 503, "AI_PROVIDER_UNAVAILABLE");
+    } finally {
+      clearTimeout(timeoutId);
     }
-    
-    const err = new Error(errorMessage);
-    err.status = res.status;
-    err.code = res.status === 401 ? "API_KEY_INVALID" : "API_ERROR";
-    throw err;
-  }
 
-  const response = await res.json();
+    if (response.ok) {
+      return normalizeCompletion(parsed, config.provider);
+    }
 
-  // Auto-learn from OpenRouter responses for AiESP training
-  try {
-    // Determine task type from system message or default to conversation_ai
-    let taskType = opts.task_type || 'conversation_ai';
-    const systemMessage = messages.find(m => m.role === "system");
-    if (systemMessage?.content) {
-      if (systemMessage.content.includes("speech") || systemMessage.content.includes("pronunciation")) {
-        taskType = "speaking_practice";
-      } else if (systemMessage.content.includes("translation") || systemMessage.content.includes("check")) {
-        taskType = "translation_check";
-      } else if (systemMessage.content.includes("game") || systemMessage.content.includes("conversation")) {
-        taskType = "game_conversation";
+    if ([429, 500, 502, 503, 504].includes(response.status) && attempt < TRANSIENT_RETRY_LIMIT) {
+      const retryAfter = Number(response.headers?.get?.("retry-after"));
+      if (!Number.isFinite(retryAfter) || retryAfter <= 2) {
+        attempt += 1;
+        await sleep(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 250);
+        continue;
       }
     }
 
-    // Learn asynchronously (don't block response)
-    learnFromOpenRouter(messages, response, taskType).catch(err => {
-      console.warn('⚠️ Failed to learn from OpenRouter response:', err.message);
-    });
-  } catch (err) {
-    console.warn('⚠️ Error in auto-learning:', err.message);
+    const providerMessage = typeof parsed?.error?.message === "string" ? parsed.error.message : "";
+    const affordableTokens = providerMessage.match(/can only afford\s+(\d+)/i)?.[1];
+    const mappedErrors = {
+      401: ["Groq rejected its configured credentials", 502, "AI_PROVIDER_AUTH_FAILED"],
+      403: ["Groq denied the request", 502, "AI_PROVIDER_REQUEST_DENIED"],
+      402: ["Groq requires an available payment balance", 503, "PAYMENT_REQUIRED"],
+      429: ["Groq rate limit reached", 503, "AI_RATE_LIMITED"]
+    };
+    const [providerMessageSafe, status, code] = mappedErrors[response.status] ||
+      (response.status >= 500
+        ? ["Groq is temporarily unavailable", 503, "AI_PROVIDER_UNAVAILABLE"]
+        : ["Groq rejected the request", 502, "AI_PROVIDER_REQUEST_FAILED"]);
+    throw createAIError(
+      providerMessageSafe.replaceAll("Groq", config.label),
+      status,
+      code,
+      response.status === 402 && affordableTokens
+        ? { maxAffordableTokens: Number(affordableTokens) }
+        : {}
+    );
   }
-
-  return response;
 }
 
 /**
@@ -243,119 +316,3 @@ export function safeParseJSON(text) {
     return null;
   }
 }
-
-/**
- * learnFromOpenRouter - Save OpenRouter response for AiESP training
- * messages: input messages
- * response: OpenRouter response object
- * taskType: task type for training
- */
-export async function learnFromOpenRouter(messages, response, taskType = 'conversation_ai') {
-  try {
-    const pool = await import("../config/db.js");
-
-    // Extract user message and AI response
-    const userMessage = messages[messages.length - 1]?.content || '';
-    const aiResponse = response.choices?.[0]?.message?.content || '';
-
-    if (!userMessage || !aiResponse) {
-      console.warn('⚠️ Skipping training data: missing user message or AI response');
-      return;
-    }
-
-    // Save to training table
-    await pool.default.query(`
-      INSERT INTO assistant_ai_training (task_type, input_data, expected_output, created_at)
-      VALUES ($1, $2, $3, NOW())
-      ON CONFLICT (task_type, md5(input_data::text)) DO NOTHING
-    `, [taskType, JSON.stringify({ message: userMessage }), JSON.stringify({ response: aiResponse })]);
-
-    console.log(`✅ Saved training data for ${taskType}: ${userMessage.substring(0, 50)}...`);
-
-    // Auto-trigger training if we have enough samples
-    const countResult = await pool.default.query(`
-      SELECT COUNT(*) as count
-      FROM assistant_ai_training
-      WHERE task_type = $1
-      AND created_at > (
-        SELECT COALESCE(MAX(trained_at), '1970-01-01')
-        FROM assistant_ai_models
-        WHERE task_type = $1
-      )
-    `, [taskType]);
-
-    const newSamples = parseInt(countResult.rows[0].count);
-
-    // Train if we have 10+ new samples
-    if (newSamples >= 10) {
-      console.log(`🔄 Auto-training ${taskType} with ${newSamples} new samples...`);
-      await trainAiESP(taskType);
-    }
-
-  } catch (err) {
-    console.error('❌ Error saving training data:', err);
-  }
-}
-
-/**
- * trainAiESP - Train AiESP with collected data
- * taskType: task type to train
- */
-export async function trainAiESP(taskType = 'conversation_ai') {
-  try {
-    const { spawn } = await import("child_process");
-    const path = await import("path");
-    const { fileURLToPath } = await import("url");
-
-    const __filename = fileURLToPath(import.meta.url);
-    const __dirname = path.dirname(__filename);
-    const backendDir = path.resolve(__dirname, "..", "..", "..", "..");
-    const assistantPath = path.resolve(backendDir, "ai_models", "assistantAI.py");
-
-    return new Promise((resolve, reject) => {
-      const pythonProcess = spawn('python', [assistantPath, 'train', taskType], {
-        stdio: ['pipe', 'pipe', 'pipe'],
-        shell: true,
-        env: {
-          ...process.env,
-          PYTHONIOENCODING: 'utf-8'
-        }
-      });
-
-      let stdout = '';
-      let stderr = '';
-
-      pythonProcess.stdout.on('data', (data) => {
-        stdout += data.toString();
-      });
-
-      pythonProcess.stderr.on('data', (data) => {
-        stderr += data.toString();
-      });
-
-      pythonProcess.on('close', (code) => {
-        if (code !== 0) {
-          reject(new Error(`AiESP training error: ${stderr || 'Unknown error'}`));
-          return;
-        }
-
-        try {
-          const result = JSON.parse(stdout.trim());
-          console.log(`✅ AiESP training completed for ${taskType}:`, result);
-          resolve(result);
-        } catch (err) {
-          reject(new Error(`AiESP training parse error: ${err.message}`));
-        }
-      });
-
-      pythonProcess.on('error', (err) => {
-        reject(new Error(`AiESP training spawn error: ${err.message}`));
-      });
-    });
-
-  } catch (err) {
-    console.error('❌ Error training AiESP:', err);
-    throw err;
-  }
-}
-

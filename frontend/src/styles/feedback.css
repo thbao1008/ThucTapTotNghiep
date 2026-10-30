@@ -19,6 +19,13 @@
 }
 
 /* Mentor Feedback Cards */
+.recurring-feedback-card { overflow-wrap: anywhere; }
+.recurring-feedback-card h3 { margin-top: 0; }
+.recurring-feedback-card li p { margin-top: 6px; }
+.feedback-evidence-quote { color: #4b5563; }
+.recurring-practice-link { display: inline-block; font-weight: 600; }
+[id^="ai-feedback-"] { scroll-margin-top: 90px; }
+
 .feedback-card {
   border: 1px solid #e5e7eb;
   border-radius: 8px;

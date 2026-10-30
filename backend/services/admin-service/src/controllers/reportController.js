@@ -148,61 +148,13 @@ export async function getAllMentors(req, res) {
 }
 
 
-export async function updateReportStatus(req, res) {
-  try {
-    const { id } = req.params;
-    const { status, replyContent, actorRole } = req.body;
-
-    const allowed = ["pending", "resolved", "dismissed"];
-    if (!allowed.includes(status)) {
-      return res.status(400).json({ success: false, message: "Trạng thái không hợp lệ" });
-    }
-
-    const updated = await reportService.updateReportStatus(id, status, replyContent, actorRole || "admin");
-    if (!updated) {
-      return res.status(404).json({ success: false, message: "Không tìm thấy report" });
-    }
-
-    // Nếu có replyContent từ admin, sử dụng nó; nếu không thì dùng mặc định
-    const finalReply = replyContent || (status === "dismissed" 
-      ? "Phản hồi bị từ chối vì chưa đủ căn cứ."
-      : status === "resolved"
-      ? "Phản hồi được chấp nhận đang tiến hành xử lý"
-      : "");
-
-    if (status === "dismissed") {
-      // cập nhật note của learner (target_id mới đúng)
-      await pool.query(`
-        UPDATE learners 
-        SET note = COALESCE(note, '') || '\n[Lịch sử report] Đơn tố cáo bị từ chối lúc ' || TO_CHAR(NOW(), 'DD/MM/YYYY HH24:MI:SS')
-        WHERE id = $1
-      `, [updated.target_id]);
-    }
-
-    if (status === "resolved") {
-      await pool.query(`
-        UPDATE learners 
-        SET note = COALESCE(note, '') || '\n[Lịch sử report] Đơn tố cáo được chấp nhận lúc ' || TO_CHAR(NOW(), 'DD/MM/YYYY HH24:MI:SS')
-        WHERE id = $1
-      `, [updated.target_id]);
-    }
-
-    // Cập nhật reply nếu có nội dung
-    if (finalReply) {
-      await pool.query(`
-        UPDATE reports
-        SET reply = '[Admin thông báo - ' || TO_CHAR(NOW(), 'DD/MM/YYYY HH24:MI:SS') || '] ' || $1,
-            reply_by = 'admin',
-            reply_at = NOW()
-        WHERE id = $2
-      `, [finalReply, id]);
-    }
-
-    res.json({ success: true, report: updated });
-  } catch (err) {
-    console.error("Error updateReportStatus controller: - reportController.js:131", err);
-    res.status(500).json({ success: false, message: "Server error" });
-  }
+export async function updateReportStatus(req,res){
+ try{
+  if(!['pending','resolved','dismissed'].includes(req.body.status))return res.status(400).json({success:false,message:'Trạng thái không hợp lệ'});
+  const report=await reportService.updateReportStatus(req.params.id,req.body.status,req.body.replyContent);
+  if(!report)return res.status(404).json({success:false,message:'Không tìm thấy report'});
+  return res.json({success:true,report});
+ }catch(error){return res.status(500).json({success:false,message:'Không thể cập nhật report'});}
 }
 
 export async function checkCanReport(req, res) {

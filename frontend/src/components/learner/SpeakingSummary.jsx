@@ -1,11 +1,16 @@
-import React, { useState } from "react";
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
+import React, { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api";
+import { getRoundAnalysis, getContentMatchScore, getSpeakingSummaryScore } from "../../utils/practiceScore.js";
 import "../../styles/speaking-practice.css";
 
-export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
+export default function SpeakingSummary({ sessionData, rounds, onRestart, onRetry, onFinish, endError }) {
   const navigate = useNavigate();
   const summary = sessionData?.summary || {};
+  const summaryStatus = summary.status || "not_assessed";
+  const verifiedSummaryScore = getSpeakingSummaryScore(sessionData, rounds);
   const [playingRound, setPlayingRound] = useState(null);
   const [wordTooltip, setWordTooltip] = useState(null);
   const [openWordTooltip, setOpenWordTooltip] = useState(null);
@@ -18,10 +23,17 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
     }
   });
   const [loadingWords, setLoadingWords] = useState({});
+  const finishingRef = useRef(false);
+  useEffect(() => () => window.speechSynthesis?.cancel(), []);
 
-  const handleFinish = () => {
-    // Về trang chủ
-    navigate("/learn/dashboard");
+  const handleFinish = async () => {
+    if (finishingRef.current) return;
+    finishingRef.current = true;
+    window.speechSynthesis?.cancel();
+    try {
+      if (onFinish && await onFinish() === false) return;
+      navigate("/learn/dashboard");
+    } finally { finishingRef.current = false; }
   };
 
   // Text-to-speech để phát âm chuẩn
@@ -203,27 +215,27 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                 <div className="tooltip-word" style={{ marginBottom: 12 }}>
                   <strong style={{ fontSize: 18, color: "#10b981" }}>{wordTooltip.word}</strong>
                   {loadingWords[openWordTooltip] && (
-                    <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}>Đang tải...</span>
+                    <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}><UiText text={"Đang tải..."} /></span>
                   )}
                 </div>
                 {wordTooltip.pronunciation && (
                   <div className="tooltip-pronunciation" style={{ marginBottom: 8, color: "#10b981", fontWeight: "bold" }}>
-                    <strong>Phát âm:</strong> /{wordTooltip.pronunciation}/
+                    <strong><UiText text={"Phát âm:"} /></strong> /<UiText>{wordTooltip.pronunciation}</UiText>/
                   </div>
                 )}
                 {wordTooltip.definition && (
                   <div className="tooltip-definition" style={{ marginBottom: 8 }}>
-                    <strong>Nghĩa:</strong> {wordTooltip.definition}
+                    <strong><UiText text={"Nghĩa:"} /></strong> <UiText>{wordTooltip.definition}</UiText>
                   </div>
                 )}
                 {wordTooltip.usage && (
                   <div className="tooltip-usage" style={{ marginBottom: 8 }}>
-                    <strong>Cách dùng:</strong> {wordTooltip.usage}
+                    <strong><UiText text={"Cách dùng:"} /></strong> <UiText>{wordTooltip.usage}</UiText>
                   </div>
                 )}
                 {wordTooltip.example && (
                   <div className="tooltip-example" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb" }}>
-                    <strong>Ví dụ:</strong> {wordTooltip.example}
+                    <strong><UiText text={"Ví dụ:"} /></strong> <UiText>{wordTooltip.example}</UiText>
                   </div>
                 )}
                 <button
@@ -241,9 +253,7 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                     cursor: "pointer",
                     fontSize: 12
                   }}
-                >
-                  Đóng
-                </button>
+                >{" "}<UiText text={"Đóng"} />{" "}</button>
               </div>
             )}
           </span>
@@ -302,27 +312,27 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                 <div className="tooltip-word" style={{ marginBottom: 12 }}>
                   <strong style={{ fontSize: 18, color: "#10b981" }}>{wordTooltip.word}</strong>
                   {loadingWords[openWordTooltip] && (
-                    <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}>Đang tải...</span>
+                    <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}><UiText text={"Đang tải..."} /></span>
                   )}
                 </div>
                 {wordTooltip.pronunciation && (
                   <div className="tooltip-pronunciation" style={{ marginBottom: 8, color: "#10b981", fontWeight: "bold" }}>
-                    <strong>Phát âm:</strong> /{wordTooltip.pronunciation}/
+                    <strong><UiText text={"Phát âm:"} /></strong> /<UiText>{wordTooltip.pronunciation}</UiText>/
                   </div>
                 )}
                 {wordTooltip.definition && (
                   <div className="tooltip-definition" style={{ marginBottom: 8 }}>
-                    <strong>Nghĩa:</strong> {wordTooltip.definition}
+                    <strong><UiText text={"Nghĩa:"} /></strong> <UiText>{wordTooltip.definition}</UiText>
                   </div>
                 )}
                 {wordTooltip.usage && (
                   <div className="tooltip-usage" style={{ marginBottom: 8 }}>
-                    <strong>Cách dùng:</strong> {wordTooltip.usage}
+                    <strong><UiText text={"Cách dùng:"} /></strong> <UiText>{wordTooltip.usage}</UiText>
                   </div>
                 )}
                 {wordTooltip.example && (
                   <div className="tooltip-example" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb" }}>
-                    <strong>Ví dụ:</strong> {wordTooltip.example}
+                    <strong><UiText text={"Ví dụ:"} /></strong> <UiText>{wordTooltip.example}</UiText>
                   </div>
                 )}
                 <button
@@ -340,9 +350,7 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                     cursor: "pointer",
                     fontSize: 12
                   }}
-                >
-                  Đóng
-                </button>
+                >{" "}<UiText text={"Đóng"} />{" "}</button>
               </div>
             )}
           </span>
@@ -388,27 +396,27 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                 <div className="tooltip-word" style={{ marginBottom: 12 }}>
                   <strong style={{ fontSize: 18, color: "#10b981" }}>{wordTooltip.word}</strong>
                   {loadingWords[openWordTooltip] && (
-                    <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}>Đang tải...</span>
+                    <span style={{ marginLeft: 8, color: "#999", fontSize: 12 }}><UiText text={"Đang tải..."} /></span>
                   )}
                 </div>
                 {wordTooltip.pronunciation && (
                   <div className="tooltip-pronunciation" style={{ marginBottom: 8, color: "#10b981", fontWeight: "bold" }}>
-                    <strong>Phát âm:</strong> /{wordTooltip.pronunciation}/
+                    <strong><UiText text={"Phát âm:"} /></strong> /<UiText>{wordTooltip.pronunciation}</UiText>/
                   </div>
                 )}
                 {wordTooltip.definition && (
                   <div className="tooltip-definition" style={{ marginBottom: 8 }}>
-                    <strong>Nghĩa:</strong> {wordTooltip.definition}
+                    <strong><UiText text={"Nghĩa:"} /></strong> <UiText>{wordTooltip.definition}</UiText>
                   </div>
                 )}
                 {wordTooltip.usage && (
                   <div className="tooltip-usage" style={{ marginBottom: 8 }}>
-                    <strong>Cách dùng:</strong> {wordTooltip.usage}
+                    <strong><UiText text={"Cách dùng:"} /></strong> <UiText>{wordTooltip.usage}</UiText>
                   </div>
                 )}
                 {wordTooltip.example && (
                   <div className="tooltip-example" style={{ marginTop: 8, paddingTop: 8, borderTop: "1px solid #e5e7eb" }}>
-                    <strong>Ví dụ:</strong> {wordTooltip.example}
+                    <strong><UiText text={"Ví dụ:"} /></strong> <UiText>{wordTooltip.example}</UiText>
                   </div>
                 )}
                 <button
@@ -426,9 +434,7 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                     cursor: "pointer",
                     fontSize: 12
                   }}
-                >
-                  Đóng
-                </button>
+                >{" "}<UiText text={"Đóng"} />{" "}</button>
               </div>
             )}
           </span>
@@ -442,7 +448,7 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
   return (
     <div className="speaking-summary">
       <div className="summary-header">
-        <h2>Tổng kết luyện tập</h2>
+        <h2><UiText text={"Tổng kết luyện tập"} /></h2>
         <div style={{ display: "flex", gap: 10 }}>
           <button 
             className="btn-primary" 
@@ -456,53 +462,61 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
               cursor: "pointer",
               fontWeight: 600
             }}
-          >
-            Xong
+          >{" "}<UiText text={"Xong"} />{" "}</button>
+        </div>
+      </div>
+
+      {endError && <p role="alert" style={{ color: '#b91c1c', margin: '16px 20px' }}><UiText>{endError}</UiText></p>}
+
+      {summaryStatus !== "completed" && (
+        <div
+          role={summaryStatus === "processing" ? "status" : "alert"}
+          style={{
+            margin: "16px 20px",
+            padding: 16,
+            borderRadius: 8,
+            background: summaryStatus === "processing" ? "#eff6ff" : "#fef2f2",
+            color: summaryStatus === "processing" ? "#1d4ed8" : "#b91c1c"
+          }}
+        >
+          <p><UiText>{summary.message || (summaryStatus === "processing"
+            ? "Một số vòng vẫn đang được phân tích."
+            : "Không thể hoàn tất phân tích kết quả.")}</UiText></p>
+          <button className="btn-primary" onClick={onRetry}>
+            <UiText>{summaryStatus === "processing" ? "Kiểm tra lại" : "Thử lại"}</UiText>
           </button>
         </div>
-      </div>
+      )}
 
-      <div className="summary-overview">
+      {summaryStatus === "completed" && <div className="summary-overview">
         <div className="overview-card" style={{ flex: 1, maxWidth: "400px", margin: "0 auto" }}>
-          <div className="overview-label">Điểm tổng kết</div>
-          <div className="overview-value" style={{ fontSize: 48, fontWeight: "bold", color: "#10b981" }}>
-            {sessionData?.average_score !== undefined && sessionData.average_score !== null ? 
-              Math.round(sessionData.average_score)
-              : (summary?.average_score !== undefined && summary.average_score !== null ?
-                Math.round(summary.average_score)
-                : 0)}/100
+          <div className="overview-label"><UiText text={"Mức độ khớp nội dung được nhận dạng"} /></div>
+          <div style={{ fontSize: 13, color: "#6b7280", marginTop: 4 }}>{" "}<UiText text={"Đây không phải là điểm đánh giá chất lượng phát âm."} />{" "}</div>
+          <div className="overview-value" style={{ fontSize: verifiedSummaryScore === null ? 24 : 48, fontWeight: "bold", color: "#10b981" }}>
+            <UiText>{verifiedSummaryScore === null ? "Chưa có điểm xác minh" : `${verifiedSummaryScore}/100`}</UiText>
           </div>
         </div>
-      </div>
+      </div>}
 
-      {summary.overall_feedback && (
+      {summaryStatus === "completed" && summary.overall_feedback && (
         <div className="summary-overall">
-          <h3>Nhận xét tổng thể:</h3>
-          <p>{summary.overall_feedback}</p>
+          <h3><UiText text={"Nhận xét tổng thể:"} /></h3>
+          <p><UiText>{summary.overall_feedback}</UiText></p>
         </div>
       )}
 
       {/* Hiển thị 10 rounds với các từ đọc sai */}
       <div style={{ marginTop: 30, padding: "0 20px" }}>
-        <h3 style={{ marginBottom: 20, color: "#333" }}>Chi tiết các vòng luyện tập:</h3>
+        <h3 style={{ marginBottom: 20, color: "#333" }}><UiText text={"Chi tiết các vòng luyện tập:"} /></h3>
         <div style={{ maxHeight: "60vh", overflowY: "auto", paddingRight: 10 }}>
           {rounds && rounds.length > 0 ? (
             rounds.map((round, idx) => {
               // Extract missing_words từ nhiều nguồn có thể
-              let missingWords = [];
-              if (round.missing_words && Array.isArray(round.missing_words)) {
-                missingWords = round.missing_words;
-              } else if (round.analysis) {
-                try {
-                  const analysis = typeof round.analysis === 'string' 
-                    ? JSON.parse(round.analysis || '{}') 
-                    : round.analysis;
-                  missingWords = analysis.missing_words || [];
-                } catch (e) {
-                  console.warn("Error parsing analysis:", e);
-                }
-              }
-              
+              const analysis = getRoundAnalysis(round);
+              const missingWords = Array.isArray(round.missing_words) ? round.missing_words
+                : Array.isArray(analysis?.missing_words) ? analysis.missing_words : [];
+              const roundStatus = round.analysis_status || round.status || analysis?.status || "processing";
+              const verifiedRoundScore = getContentMatchScore(round);
               
               const prompt = round.prompt || '';
               
@@ -522,26 +536,31 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                       <div style={{ 
                         fontSize: 18, 
                         fontWeight: "bold", 
-                        color: "#10b981",
+                        color: roundStatus === "failed" ? "#b91c1c" : "#10b981",
                         marginBottom: 10
-                      }}>
-                        Vòng {round.round_number || idx + 1}:
+                      }}>{" "}<UiText text={"Vòng"} />{" "}<UiText>{round.round_number || idx + 1}</UiText>:
                       </div>
+                      {roundStatus !== "completed" && (
+                        <div role={roundStatus === "processing" ? "status" : "alert"}>
+                          <UiText>{roundStatus === "processing"
+                            ? "Đang phân tích..."
+                            : "Phân tích thất bại. Hãy thử lại tổng kết."}</UiText>
+                        </div>
+                      )}
                       <div style={{ 
                         fontSize: 16, 
                         color: "#333", 
                         lineHeight: 1.8,
                         marginBottom: 10
                       }}>
-                        {highlightMissingWords(prompt, missingWords)}
+                        <UiText>{highlightMissingWords(prompt, missingWords)}</UiText>
                       </div>
-                      {round.score !== undefined && (
+                      {roundStatus === "completed" && (
                         <div style={{ 
                           fontSize: 14, 
                           color: "#666",
                           marginTop: 8
-                        }}>
-                          Điểm: <strong>{Math.round(parseFloat(round.score || 0))}/100</strong>
+                        }}>{" "}<UiText text={"Khớp nội dung:"} />{" "}<strong><UiText>{verifiedRoundScore === null ? "Chưa có điểm xác minh" : `${Math.round(verifiedRoundScore)}/100`}</UiText></strong>
                         </div>
                       )}
                     </div>
@@ -565,18 +584,16 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
                         flexShrink: 0,
                         boxShadow: "0 2px 4px rgba(0,0,0,0.1)"
                       }}
-                      title="Nghe phát âm chuẩn"
+                      title={englishText("Nghe phát âm chuẩn")}
                     >
-                      {playingRound === (round.round_number || idx + 1) ? "⏸" : "🔊"}
+                      <UiText>{playingRound === (round.round_number || idx + 1) ? "⏸" : "🔊"}</UiText>
                     </button>
                   </div>
                 </div>
               );
             })
           ) : (
-            <div style={{ textAlign: "center", padding: 40, color: "#666" }}>
-              Chưa có dữ liệu các vòng luyện tập
-            </div>
+            <div style={{ textAlign: "center", padding: 40, color: "#666" }}>{" "}<UiText text={"Chưa có dữ liệu các vòng luyện tập"} />{" "}</div>
           )}
         </div>
       </div>
@@ -595,11 +612,8 @@ export default function SpeakingSummary({ sessionData, rounds, onRestart }) {
             fontWeight: 600,
             fontSize: 16
           }}
-        >
-          Xong
-        </button>
+        >{" "}<UiText text={"Xong"} />{" "}</button>
       </div>
     </div>
   );
 }
-

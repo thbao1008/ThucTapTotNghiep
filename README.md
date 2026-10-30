@@ -1,107 +1,35 @@
-# AESP - Học Tập Thông Minh
+# AESP — AI Education Support Platform
 
-Hệ thống học tập thông minh sử dụng kiến trúc microservices với AI hỗ trợ.
+Ứng dụng luyện tiếng Anh cho Learner, Mentor và Admin. Dự án chạy local với PostgreSQL, Groq và speech recognition Python.
 
-## 🚀 Yêu Cầu Hệ Thống
+[Báo cáo sửa đổi đồ án](BAO_CAO_THAY_DOI_DO_AN.md) và [danh sách file thay đổi](DANH_SACH_FILE_THAY_DOI.csv) nằm ngay tại thư mục gốc.
 
-- Docker & Docker Compose (phiên bản mới nhất)
-- Git
+## Cài lần đầu
 
-## 📦 Cài Đặt & Chạy
+1. Đọc [REQUIREMENTS.md](REQUIREMENTS.md) và cài phần mềm nền.
+2. Chạy `SETUP_AESP.cmd` ngay tại thư mục dự án.
+3. Điền DB password và Groq API key trong `backend/.env.local`.
+4. Tạo database `aesp` rỗng rồi chạy:
 
-### 1. Clone Repository
-```bash
-git clone https://github.com/thbao1008/ThucTapTotNghiep.git
-cd aesp
+```cmd
+npm run db:init
+npm run admin:create
+npm run doctor
+START_AESP.cmd
 ```
 
-### 2. Chạy với Docker
+[Hướng dẫn cài đặt và kết nối Groq/FPT](docs/GETTING_STARTED.md) · [Hướng dẫn sử dụng](docs/USER_GUIDE.md) · [Cấu trúc dự án](docs/PROJECT_STRUCTURE.md) · [API](docs/api-spec.md)
 
-```bash
-# Build và chạy tất cả services
-docker-compose up --build
+Schema cài mới: [backend/db/schema.sql](backend/db/schema.sql). Công cụ khởi tạo từ chối DB đã có bảng. Dependencies Node nằm trong các `package.json` và lockfile; dependencies Python ở [requirements.txt](requirements.txt).
 
-# Chạy background
-docker-compose up --build -d
+## Chạy hằng ngày
 
-# Kiểm tra services
-docker-compose ps
+Bật PostgreSQL rồi chạy `START_AESP.cmd`, hoặc `npm run dev`. Mở http://127.0.0.1:5173 và giữ cửa sổ CMD chạy. Ctrl+C dừng các service thuộc phiên đó. `npm run doctor` kiểm tra môi trường; `npm run dev:check` kiểm tra trước khi khởi động.
 
-# Xem logs
-docker-compose logs -f
+## Build giao diện
+
+```cmd
+npm run build
 ```
 
-### 3. Khởi Tạo Database
-
-```bash
-# Chạy script init database
-docker-compose exec app sh init-db.sh
-```
-
-## 🌐 Truy Cập Ứng Dụng
-
-Sau khi chạy thành công:
-
-- **Frontend**: http://localhost:5173
-- **API Gateway**: http://localhost:4000
-- **Database**: localhost:5432 (user: postgres, password: 1234)
-
-## 🏗️ Cấu Trúc Dự Án
-
-```
-aesp/
-├── frontend/              # React + Vite frontend
-├── backend/
-│   ├── services/          # Microservices (API Gateway, User, Package, etc.)
-│   └── ai_models/         # AI training scripts
-├── docs/                  # Documentation
-├── infra/                 # Infrastructure configs
-└── docker-compose.yml     # Docker orchestration
-```
-
-## 📚 Documentation
-
-- [API Spec](docs/api-spec.md)
-- [Product Brief](docs/product-brief.md)
-- [Microservices Architecture](docs/MICROSERVICES_ARCHITECTURE.md)
-
-## 🔧 Troubleshooting
-
-### Lỗi thường gặp:
-
-1. **Port đã được sử dụng**
-   - Dừng các processes khác hoặc thay đổi port trong docker-compose.yml
-
-2. **Database connection failed**
-   - Đảm bảo PostgreSQL container đang chạy
-   - Kiểm tra logs: `docker-compose logs db`
-
-3. **Services không start**
-   - Kiểm tra logs: `docker-compose logs app`
-   - Đảm bảo file .env.docker tồn tại
-
-### Commands hữu ích:
-
-```bash
-# Restart services
-docker-compose restart
-
-# Rebuild và restart
-docker-compose up --build --force-recreate
-
-# Clean up
-docker-compose down -v
-docker system prune -f
-```
-
-## 🤝 Đóng Góp
-
-1. Fork repository
-2. Tạo feature branch: `git checkout -b feature/new-feature`
-3. Commit changes: `git commit -am 'Add new feature'`
-4. Push: `git push origin feature/new-feature`
-5. Tạo Pull Request
-
-## 📄 License
-
-This project is licensed under the MIT License.
+Dự án được sử dụng trực tiếp trong thư mục này. Không cần bản source sao chép hoặc gói export riêng. Giữ cấu hình riêng, backup và file người dùng ngoài bộ source chia sẻ.

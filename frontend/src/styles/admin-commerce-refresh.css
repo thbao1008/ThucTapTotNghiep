@@ -1,0 +1,96 @@
+/* Commerce workspaces and portal dialogs only. */
+body .theme-admin .admin-packages-page,
+body .theme-admin .admin-purchases-page { min-width:0; }
+.admin-commerce-modal,.admin-packages-page,.admin-purchases-page{--commerce-ink:#28434f;--commerce-muted:#81929d;--commerce-line:#e4ebef;--commerce-teal:#34736f}
+body .theme-admin .commerce-surface{background:#fff;border:1px solid var(--commerce-line);border-radius:15px;overflow:hidden;box-shadow:0 3px 14px #20354503}
+body .theme-admin .commerce-section-heading{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:20px 22px;border-bottom:1px solid #edf1f3}
+body .theme-admin .commerce-section-heading h2{margin:0;font-size:14px;letter-spacing:-.2px;color:var(--commerce-ink);font-weight:650}
+body .theme-admin .commerce-result-count{font-size:11px;color:#91a0a8}
+body .theme-admin .commerce-surface>.admin-table-wrap{border:0;border-radius:0}
+body .theme-admin .admin-packages-page .commerce-package-table{min-width:600px}
+body .theme-admin .admin-purchases-page .commerce-purchase-table{min-width:940px}
+body .theme-admin .commerce-package-name,.commerce-history-heading .commerce-package-name{display:flex;align-items:center;gap:12px}
+body .theme-admin .commerce-package-name strong{color:var(--commerce-ink);font-weight:600;font-size:13px}
+body .theme-admin .commerce-package-name small{display:block;font-size:10px;color:#9cabb3;margin-top:3px}
+body .theme-admin .commerce-item-mark{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;background:#edf4f2;border:1px solid #e4eeea;color:#5b8a7f;flex-shrink:0}
+body .theme-admin .commerce-item-mark svg{width:17px;height:17px}
+body .theme-admin .admin-workspace-page table.table .commerce-price{font-weight:600;color:#355462;white-space:nowrap;font-variant-numeric:tabular-nums}
+body .theme-admin .admin-workspace-page table.table .commerce-price-muted{color:#94a2aa;font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+body .theme-admin .commerce-duration{display:inline-flex;padding:4px 9px;background:#f4f7f8;border:1px solid #e9eff1;border-radius:6px;font-size:11px;gap:4px;color:#778d96;white-space:nowrap}
+body .theme-admin .commerce-row-actions{display:flex;justify-content:flex-end;gap:7px}
+body .theme-admin .admin-workspace-page table.table .commerce-actions-heading{text-align:right}
+body .theme-admin .admin-workspace-page .commerce-icon-button{width:32px;height:32px;min-height:32px;border:1px solid #e0e8ec;border-radius:8px;background:#fff;color:#78919b;padding:0;box-shadow:none;transform:none;flex-shrink:0}
+body .theme-admin .admin-workspace-page .commerce-icon-button:hover{background:#eff6f4;border-color:#c9dcd6;color:#3b7e70;transform:none;box-shadow:none}
+body .theme-admin .admin-workspace-page .commerce-icon-button.danger{color:#b37a7e}
+body .theme-admin .admin-workspace-page .commerce-icon-button.danger:hover{background:#fff3f3;border-color:#edcece;color:#b35f69}
+body .theme-admin .admin-workspace-page table.table .commerce-table-empty{padding:52px 24px;text-align:center;color:#94a4ac;font-size:12px}
+body .theme-admin .commerce-table-empty>svg{display:block;margin:0 auto 12px;width:25px;height:25px;color:#a6b8bf}
+body .theme-admin .commerce-inline-error{display:flex;justify-content:space-between;align-items:center;gap:14px}
+body .theme-admin .commerce-table-toolbar{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:18px 20px;border-bottom:1px solid #edf1f3;flex-wrap:wrap}
+body .theme-admin .commerce-search{position:relative;min-width:250px;max-width:390px;flex:1}
+body .theme-admin .commerce-search>svg{position:absolute;left:13px;top:50%;transform:translateY(-50%);width:15px;height:15px;color:#95a6b0;pointer-events:none}
+body .theme-admin .admin-workspace-page .commerce-search input{width:100%;box-sizing:border-box;padding:10px 12px 10px 37px;background:#fbfcfd;border-radius:9px;font-size:12px;min-height:39px}
+body .theme-admin .commerce-toolbar-meta{display:flex;align-items:center;gap:14px;color:#92a2aa;font-size:11px}
+body .theme-admin .commerce-learner{display:flex;align-items:center;gap:10px;min-width:160px}
+body .theme-admin .commerce-learner strong{display:block;color:#365361;font-size:12px;font-weight:600}
+body .theme-admin .commerce-learner small,body .theme-admin .commerce-cell-note{display:block;font-size:10px;color:#9aabb4;margin-top:3px}
+body .theme-admin .commerce-package-label{font-weight:550;font-size:12px;color:#52717d}
+body .theme-admin .commerce-purchase-table .commerce-package-label{display:block;min-width:125px;overflow-wrap:normal;word-break:normal}
+body .theme-admin .commerce-learner>div{min-width:0;max-width:185px}
+body .theme-admin .commerce-learner small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+body .theme-admin .admin-workspace-page .commerce-history-list{padding:0;border:0;background:transparent;box-shadow:none;border-radius:0}
+body .theme-admin .admin-workspace-page .commerce-section-heading h2,body .theme-admin .commerce-history-heading h2{padding-bottom:0;border-bottom:0}
+body .theme-admin .commerce-section-heading h2::after,body .theme-admin .commerce-history-heading h2::after{display:none}
+body .theme-admin .commerce-date{white-space:nowrap;font-size:11px;font-variant-numeric:tabular-nums}
+body .theme-admin .commerce-status{display:inline-flex;align-items:center;gap:6px;white-space:nowrap;border-radius:6px;padding:4px 8px;font-size:10px;font-weight:600;background:#f3f5f6;color:#85969e;border:1px solid #e7ecee}
+body .theme-admin .commerce-status::before{content:'';width:5px;height:5px;background:currentColor;border-radius:50%}
+body .theme-admin .commerce-status.active{background:#edf6ef;color:#62876d;border-color:#dcebdd}
+body .theme-admin .commerce-status.expired{background:#fff5ed;color:#b08762;border-color:#f2e4d6}
+body .theme-admin .admin-workspace-page .commerce-text-action{border:0;padding:6px 0;background:none;color:#648c91;font-size:11px;white-space:nowrap;font-weight:550;gap:5px;min-height:30px}
+body .theme-admin .admin-workspace-page .commerce-text-action:hover{color:#286e66;background:none;box-shadow:none}
+body .theme-admin .commerce-back-link{display:inline-flex;align-items:center;gap:7px;margin:0 0 20px;text-decoration:none;color:#7f949d;font-size:11px;font-weight:550}
+body .theme-admin .commerce-back-link svg{width:14px;height:14px}
+body .theme-admin .commerce-success{display:flex;align-items:center;gap:8px;background:#eff8f1;border:1px solid #dcebdd;border-radius:9px;padding:12px 15px;color:#678a6f;font-size:12px;margin:0 0 18px}
+body .theme-admin .commerce-access-note{display:flex;align-items:center;gap:9px;color:#8c9da5;font-size:11px;margin:0 0 20px;line-height:1.7}
+body .theme-admin .commerce-access-note>svg{flex-shrink:0;width:14px;height:14px}
+body .theme-admin .commerce-history-list{display:grid;gap:18px}
+body .theme-admin .commerce-history-card{background:#fff;border:1px solid #e0e8ec;border-radius:14px;overflow:hidden;box-shadow:0 3px 14px #20354503}
+body .theme-admin .commerce-history-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:23px 24px;border-bottom:1px solid #f0f3f5}
+body .theme-admin .commerce-history-heading h2{font-size:15px;font-weight:600;letter-spacing:-.25px;color:#304f5c;margin:0}
+body .theme-admin .commerce-purchase-facts{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));margin:0;padding:22px 24px;gap:20px}
+body .theme-admin .commerce-purchase-facts>div{min-width:0}
+body .theme-admin .commerce-purchase-facts dt{display:flex;align-items:center;gap:6px;font-size:10px;color:#91a2aa;line-height:1.5;margin-bottom:7px}
+body .theme-admin .commerce-purchase-facts dt svg{width:12px;height:12px}
+body .theme-admin .commerce-purchase-facts dd{margin:0;font-size:13px;color:#526f7b;font-weight:550;font-variant-numeric:tabular-nums}
+body .theme-admin .commerce-history-actions{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:14px 24px;background:#fcfdfd;border-top:1px solid #edf1f3}
+body .theme-admin .commerce-history-actions>span{font-size:10px;display:flex;gap:6px;align-items:center;color:#ae8c6c}
+body .theme-admin .commerce-history-actions>span svg{width:13px;height:13px}
+.commerce-sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* Shared Modal is rendered outside the role shell. */
+body .admin-commerce-modal.modal-card{width:520px;max-width:calc(100vw - 32px);max-height:calc(100dvh - 32px);padding:0;border-radius:16px;border:1px solid #e1e8eb;box-shadow:0 24px 90px #233d4b30;overflow:hidden}
+body .admin-commerce-modal .modal-header{padding:20px 23px;border-bottom:1px solid #edf1f3;background:#fff}
+body .admin-commerce-modal .modal-header h3{margin:0;font-size:18px;letter-spacing:-.4px;color:#2e4c59}
+body .admin-commerce-modal .modal-header .btn-close{font-size:16px;width:30px;height:30px;min-height:30px;border:1px solid #e4ebef;border-radius:8px;color:#8ca0a9;background:#fff;box-shadow:none}
+body .admin-commerce-modal .modal-body{padding:23px;overflow:auto;max-height:calc(100dvh - 118px)}
+body .admin-commerce-modal .commerce-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px 16px}
+body .admin-commerce-modal .commerce-field{display:flex;flex-direction:column;gap:8px;min-width:0}
+body .admin-commerce-modal .commerce-field.full,body .admin-commerce-modal .commerce-form-error,body .admin-commerce-modal .commerce-form-actions{grid-column:1/-1}
+body .admin-commerce-modal .commerce-field label{font-size:11px;font-weight:600;color:#80959f;margin:0}
+body .admin-commerce-modal .commerce-field input{width:100%;box-sizing:border-box;border:1px solid #dce5e9;background:#fbfcfd;box-shadow:none;border-radius:8px;font-size:13px;padding:11px 12px;min-height:42px;color:#3b5967}
+body .admin-commerce-modal .commerce-field input:focus{outline:2px solid #b9dcd64d;outline-offset:1px;border-color:#8ebdb5;box-shadow:none}
+body .admin-commerce-modal .commerce-form-actions{display:flex;justify-content:flex-end;align-items:center;gap:9px;margin-top:5px;padding-top:20px;border-top:1px solid #edf1f3}
+body .admin-commerce-modal .commerce-form-actions .btn{display:inline-flex;align-items:center;justify-content:center;font-size:12px;border-radius:8px;min-height:38px;padding:9px 15px;font-weight:550;box-shadow:none;transform:none}
+body .admin-commerce-modal .commerce-form-actions .btn-primary{background:#285f62;color:#fff;border:1px solid #285f62}
+body .admin-commerce-modal .commerce-form-actions .btn-ghost{background:#fff;color:#7b929b;border:1px solid #dce5e9}
+body .admin-commerce-modal .commerce-form-actions .btn:disabled{opacity:.5;cursor:default}
+body .admin-commerce-modal .commerce-form-error{background:#fff5f5;border:1px solid #efd8dc;color:#a26c73;border-radius:8px;padding:11px 13px;font-size:12px;line-height:1.7;margin:0 0 16px}
+body .admin-commerce-modal .commerce-plan-options{padding:0;margin:0;border:0;display:grid;gap:10px;min-width:0}
+body .admin-commerce-modal .commerce-plan-option{display:flex;align-items:center;gap:12px;padding:16px;border:1px solid #dfe7eb;border-radius:11px;cursor:pointer;background:#fff;margin:0}
+body .admin-commerce-modal .commerce-plan-option.selected{border-color:#8dbbb0;background:#f1f8f4;box-shadow:0 0 0 1px #8dbbb030}
+body .admin-commerce-modal .commerce-plan-option>input{width:15px;height:15px;min-height:0;accent-color:#34776c;flex-shrink:0;margin:0}
+body .admin-commerce-modal .commerce-plan-option>span{flex:1;min-width:0}
+body .admin-commerce-modal .commerce-plan-option strong{display:block;color:#3f606b;font-size:13px;font-weight:600}
+body .admin-commerce-modal .commerce-plan-option small{display:block;color:#8da19f;font-size:10px;margin-top:4px}
+body .admin-commerce-modal .commerce-plan-option>b{font-size:12px;color:#5e7d79;font-weight:600;white-space:nowrap}
+@media(max-width:1000px){body .theme-admin .commerce-purchase-facts{grid-template-columns:repeat(2,minmax(0,1fr));gap:23px}}
+@media(max-width:650px){body .theme-admin .commerce-section-heading,body .theme-admin .commerce-table-toolbar{padding:16px}body .theme-admin .commerce-table-toolbar{gap:12px}body .theme-admin .commerce-search{min-width:180px;max-width:none}body .theme-admin .commerce-toolbar-meta{margin-left:auto}body .theme-admin .commerce-history-heading{padding:18px}body .theme-admin .commerce-purchase-facts{padding:18px;gap:20px 14px}body .theme-admin .commerce-history-actions{padding:14px 18px;align-items:flex-start;flex-direction:column}body .admin-commerce-modal .commerce-form{grid-template-columns:minmax(0,1fr)}body .admin-commerce-modal .modal-body{padding:20px}body .admin-commerce-modal .commerce-plan-option{padding:13px;flex-wrap:wrap}body .admin-commerce-modal .commerce-plan-option>b{margin-left:27px}}

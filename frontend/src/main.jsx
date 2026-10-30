@@ -1,4 +1,4 @@
-﻿// src/main.jsx
+// src/main.jsx
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";
@@ -7,6 +7,10 @@ import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
 import App from "./app/App.jsx";
 import "./styles/theme.css";
 import "./styles/base.css";
+import "./styles/ui-refresh.css";
+import "./styles/home-refresh.css";
+import './styles/learning-refresh.css';
+import { UiLanguageProvider } from "./i18n/UiLanguage.jsx";
 import { AuthProvider } from "./context/AuthContext.jsx";
 import { getAuth } from "./utils/auth";
 
@@ -31,10 +35,8 @@ const queryClient = new QueryClient({
 ReactDOM.createRoot(document.getElementById("root")).render(
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
-      <AuthProvider>
-        <App />
-      </AuthProvider>
+      <UiLanguageProvider><AuthProvider><App /></AuthProvider></UiLanguageProvider>
     </BrowserRouter>
-    <ReactQueryDevtools initialIsOpen={false} />
+    {import.meta.env.VITE_SHOW_DEVTOOLS === 'true' && <ReactQueryDevtools initialIsOpen={false} />}
   </QueryClientProvider>
 );

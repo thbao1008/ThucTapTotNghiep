@@ -1,4 +1,7 @@
 import pool from "../config/db.js";
+import {communityId,communityTransaction,readablePost,toggleCommunityLike,notifyCommunity} from './communityInteractions.js';
+const postCounts=`(SELECT count(*)::int FROM post_likes pl WHERE pl.post_id=p.id) AS likes_count,
+  (SELECT count(*)::int FROM post_comments pc WHERE pc.post_id=p.id AND pc.is_deleted=false) AS comments_count`;
 
 export async function createPost({ authorId, authorRole, title, content, audioUrl = null, imageUrl = null }) {
   const status = authorRole === 'admin' ? 'approved' : 'pending';
@@ -7,8 +10,14 @@ export async function createPost({ authorId, authorRole, title, content, audioUr
     VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
     RETURNING *
   `;
-  const result = await pool.query(sql, [authorId, authorRole, title, content, audioUrl, imageUrl, status]);
-  return result.rows[0];
+  return communityTransaction(async client=>{
+    const {rows:[post]}=await client.query(sql,[authorId,authorRole,title,content,audioUrl,imageUrl,status]);
+    if(status==='pending'){
+      const {rows:admins}=await client.query("SELECT id FROM users WHERE role='admin' AND status='active'");
+      for(const admin of admins)await notifyCommunity(client,{userId:admin.id,actorId:authorId,type:'post_submitted',title:'Post awaiting review',message:'A Community post is ready for review.',postId:post.id});
+    }
+    return post;
+  });
 }
 
 export async function getPosts({ userId = null, role = null, includePending = false, page = 1, limit = 20 } = {}) {
@@ -17,6 +26,7 @@ export async function getPosts({ userId = null, role = null, includePending = fa
   let sql = `
     SELECT 
       p.*,
+      ${postCounts},
       u.name AS author_name,
       u.email AS author_email,
       u.avatar_url AS author_avatar_url,
@@ -39,7 +49,7 @@ export async function getPosts({ userId = null, role = null, includePending = fa
     sql += ` AND (p.status = 'approved' OR p.author_id = $${params.length})`;
   }
 
-  sql += ` ORDER BY p.is_pinned DESC, is_viewed ASC, p.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  sql += ` ORDER BY p.is_pinned DESC, is_viewed ASC, p.created_at DESC, p.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   params.push(parseInt(limit), offset);
 
   const result = await pool.query(sql, params);
@@ -50,6 +60,7 @@ export async function getPostById(postId, { userId = null, role = null } = {}) {
   const sql = `
     SELECT 
       p.*,
+      ${postCounts},
       u.name AS author_name,
       u.email AS author_email,
       u.avatar_url AS author_avatar_url,
@@ -76,6 +87,7 @@ export async function getUserPosts(userId, { page = 1, limit = 20 } = {}) {
   const sql = `
     SELECT 
       p.*,
+      ${postCounts},
       u.name AS author_name,
       u.email AS author_email,
       u.avatar_url AS author_avatar_url,
@@ -96,6 +108,7 @@ export async function getLikedPosts(userId, { page = 1, limit = 20 } = {}) {
   const sql = `
     SELECT 
       p.*,
+      ${postCounts},
       u.name AS author_name,
       u.email AS author_email,
       u.avatar_url AS author_avatar_url,
@@ -119,6 +132,7 @@ export async function getPendingPosts({ page = 1, limit = 20 } = {}) {
   const sql = `
     SELECT 
       p.*,
+      ${postCounts},
       u.name AS author_name,
       u.email AS author_email,
       u.role AS author_role,
@@ -145,11 +159,14 @@ export async function reviewPost({ postId, adminId, action, rejectionReason = nu
         reviewed_by = $3,
         reviewed_at = NOW(),
         updated_at = NOW()
-    WHERE id = $4 AND status = 'pending'
+    WHERE id = $4 AND status = 'pending' AND is_deleted = false
     RETURNING *
   `;
-  const result = await pool.query(sql, [action, rejectionReason, adminId, postId]);
-  return result.rows[0];
+  return communityTransaction(async client=>{
+    const {rows:[post]}=await client.query(sql,[action,rejectionReason,adminId,postId]);
+    if(post)await notifyCommunity(client,{userId:post.author_id,actorId:adminId,type:action==='approved'?'post_approved':'post_rejected',title:action==='approved'?'Post approved':'Post not approved',message:action==='approved'?'Your Community post was approved.':'Open your Community post to view the review reason.',postId:post.id});
+    return post;
+  });
 }
 
 export async function deletePost(postId, userId, role) {
@@ -196,14 +213,23 @@ export async function createComment({ postId, authorId, authorRole, content = nu
     VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
     RETURNING *
   `;
-  const result = await pool.query(sql, [postId, authorId, authorRole, content, audioUrl, parentCommentId]);
-  return result.rows[0];
+  return communityTransaction(async client=>{
+    const post=await readablePost(client,communityId(postId),authorId,authorRole);
+    let parent;
+    if(parentCommentId!==null){({rows:[parent]}=await client.query('SELECT id,author_id FROM post_comments WHERE id=$1 AND post_id=$2 AND is_deleted=false',[communityId(parentCommentId),postId]));if(!parent)throw Object.assign(new Error('Reply must belong to this post'),{status:400});}
+    const result=await client.query(sql,[postId,authorId,authorRole,content,audioUrl,parentCommentId]);
+    if(!parent||parent.author_id!==post.author_id)await notifyCommunity(client,{userId:post.author_id,actorId:authorId,type:'post_comment',title:'New comment',message:'A member commented on your Community post.',postId,commentId:result.rows[0].id});
+    if(parent)await notifyCommunity(client,{userId:parent.author_id,actorId:authorId,type:'comment_reply',title:'New reply',message:'A member replied to your comment.',postId,commentId:result.rows[0].id});
+    const {rows:[count]}=await client.query('SELECT count(*)::int AS comments_count FROM post_comments WHERE post_id=$1 AND is_deleted=false',[postId]);
+    return {...result.rows[0],comments_count:count.comments_count,likes_count:0,is_liked:false};
+  });
 }
 
 export async function getPostComments(postId, { includeReplies = true } = {}) {
   let sql = `
     SELECT 
       c.*,
+      (SELECT count(*)::int FROM post_likes pl WHERE pl.comment_id=c.id) AS likes_count,
       u.name AS author_name,
       u.email AS author_email,
       u.avatar_url AS author_avatar_url
@@ -237,36 +263,7 @@ export async function deleteComment(commentId, userId, role) {
   return result.rows[0];
 }
 
-export async function toggleLike({ userId, postId = null, commentId = null }) {
-  if (!postId && !commentId) {
-    throw new Error('Must provide either postId or commentId');
-  }
-
-  // Check if already liked
-  const checkSql = postId
-    ? `SELECT id FROM post_likes WHERE user_id = $1 AND post_id = $2`
-    : `SELECT id FROM post_likes WHERE user_id = $1 AND comment_id = $2`;
-  const checkParams = postId ? [userId, postId] : [userId, commentId];
-  const checkResult = await pool.query(checkSql, checkParams);
-
-  if (checkResult.rows.length > 0) {
-    // Unlike
-    const deleteSql = postId
-      ? `DELETE FROM post_likes WHERE user_id = $1 AND post_id = $2 RETURNING *`
-      : `DELETE FROM post_likes WHERE user_id = $1 AND comment_id = $2 RETURNING *`;
-    await pool.query(deleteSql, checkParams);
-    return { liked: false };
-  } else {
-    // Like
-    const insertSql = `
-      INSERT INTO post_likes (user_id, post_id, comment_id, created_at)
-      VALUES ($1, $2, $3, NOW())
-      RETURNING *
-    `;
-    await pool.query(insertSql, [userId, postId, commentId]);
-    return { liked: true };
-  }
-}
+export const toggleLike = toggleCommunityLike;
 
 export async function checkUserLikes(userId, { postIds = [], commentIds = [] }) {
   const results = { posts: {}, comments: {} };

@@ -1,28 +1,26 @@
-// backend/services/ai-service/src/middleware/authGuard.js
 import jwt from "jsonwebtoken";
+import pool from "../config/db.js";
+import { requireJwtSecret } from "../../../shared/jwtConfig.js";
+import { validateActiveSession } from "../../../shared/sessionValidation.js";
+import {
+  createJwtAuthGuard,
+  createRoleGuard,
+  createServiceAuthGuard
+} from "./securityPrimitives.js";
 
-/**
- * authGuard middleware - Verify JWT token and attach user to request
- * Giống code cũ trong src - sử dụng JWT verify trực tiếp, không query database
- */
-export function authGuard(req, res, next) {
-  const authHeader = req.headers.authorization;
-  if (!authHeader) {
-    return res.status(401).json({ message: "Thiếu token" });
-  }
+export const authGuard = createJwtAuthGuard({
+  verifyToken: (token, secret) => jwt.verify(token, secret, { algorithms: ["HS256"] }),
+  validateSession: (token, userId) => validateActiveSession(pool, token, userId),
+  getSecret: () => requireJwtSecret()
+});
 
-  const token = authHeader.split(" ")[1];
-  if (!token) {
-    return res.status(401).json({ message: "Thiếu token" });
-  }
+export const allowRoles = (...roles) => createRoleGuard(roles);
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret_key");
-    req.user = decoded;
-    next();
-  } catch (err) {
-    console.error("authGuard error - ai-service:", err);
-    return res.status(403).json({ message: "Token không hợp lệ" });
-  }
-}
+export const allowServices = (...services) => (req, res, next) => {
+  const tokens = {
+    learner: process.env.AESP_LEARNER_SERVICE_TOKEN,
+    mentor: process.env.AESP_MENTOR_SERVICE_TOKEN
+  };
+  return createServiceAuthGuard({ tokens, allowedServices: services })(req, res, next);
+};
 

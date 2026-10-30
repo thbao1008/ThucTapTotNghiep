@@ -1,26 +1,26 @@
 ﻿// Learner Service - Controller
 import * as learnerService from "../services/learnerService.js";
+import { createAnalyzeSubmissionHandler } from "./submissionAnalysisController.js";
 // TODO: Replace with API calls to AI Service
 // import * as aiService from "../services/aiService.js";
 import * as progressAnalyticsService from "../services/progressAnalyticsService.js";
 import { enqueue } from "../utils/queue.js";
 import { runWhisperX } from "../utils/whisperxRunner.js";
+import { removeFile, validateUploadedFile } from "../utils/audioUpload.js";
 // TODO: Replace with API calls to Report Service (if created) or Mentor Service
 // import * as reportController from "./reportController.js";
 import pool from "../config/db.js";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
+import { positiveSubmissionId, withSubmissionAttempt } from "../utils/submissionAttempt.js";
+import { validateSubmissionContext } from "../utils/submissionContext.js";
 
-/**
- * Tìm project root (đi lên từ learner-service/src/controllers đến root)
- */
-function getProjectRoot() {
-  const __filename = fileURLToPath(import.meta.url);
-  const __dirname = path.dirname(__filename);
-  // __dirname = backend/services/learner-service/src/controllers
-  // Đi lên 4 cấp: controllers -> src -> learner-service -> services -> backend
-  return path.resolve(__dirname, "..", "..", "..", "..");
+export async function getSubmissionAttempt(req, res) {
+  try {
+    const challengeId = positiveSubmissionId(req.query.challenge_id, "challenge_id");
+    const attempt = await learnerService.getNextAttemptNumber(req.learnerId, challengeId);
+    res.json({ challenge_id: challengeId, next_attempt_number: Number(attempt) });
+  } catch (error) {
+    res.status(error.status || 500).json({ message: error.status ? error.message : "Unable to load submission attempt" });
+  }
 }
 
 /* ========== Controller functions ========== */
@@ -65,7 +65,7 @@ export async function create(req, res) {
     return res.status(201).json({ learner: created });
   } catch (err) {
     console.error("Error learnerController.create: - learnerController.js:50", err);
-    return res.status(500).json({ message: "Server error" });
+    return res.status(err.status || 500).json({ message: err.status ? err.message : "Server error" });
   }
 }
 
@@ -454,8 +454,11 @@ export async function listAllChallenges(req, res) {
 }
 
 export async function getChallengeById(req, res) {
+  const id = Number(req.params.id);
+  if (!/^\d+$/.test(req.params.id ?? "") || !Number.isInteger(id) || id <= 0 || id > 2_147_483_647) {
+    return res.status(400).json({ message: "Invalid challenge id" });
+  }
   try {
-    const id = parseInt(req.params.id);
     const ch = await learnerService.getChallengeById(id);
     if (!ch) return res.status(404).json({ message: "Challenge not found" });
     res.json({ challenge: ch });
@@ -479,96 +482,106 @@ export async function getLearnerChallenges(req, res) {
   }
 }
 
-export async function createSubmission(req, res) {
-  try {
-    const learnerId = req.body.learner_id || req.body.learnerId;
-    const challengeId = req.body.challenge_id || req.body.challengeId;
-    const assignmentId = req.body.assignment_id || req.body.assignmentId;
+export function createSubmissionHandler({
+  service = learnerService,
+  transcribeAudio = runWhisperX,
+  enqueueJob = enqueue,
+  validateAudio = validateUploadedFile,
+  removeUploadedFile = removeFile
+} = {}) {
+  return async function createSubmission(req, res) {
+    let submissionCreated = false;
+    let cleanupSafe = true;
+    try {
+      const learnerId = req.learnerId;
+      const challengeId = req.body.challenge_id || req.body.challengeId;
 
-    if (!learnerId || !challengeId) {
-      return res.status(400).json({ message: "Missing learnerId or challengeId" });
-    }
-
-    let audioUrl = null;
-    let transcript = null;
-
-    if (req.file) {
-      const backendDir = getProjectRoot();
-      const uploadsDir = path.resolve(backendDir, "uploads");
-      const localPath = req.file.filename
-        ? path.join(uploadsDir, req.file.filename)
-        : path.resolve(req.file.path);
-
-      if (!fs.existsSync(localPath)) {
-        console.error("createSubmission: audio file not found - learnerController.js:279", localPath);
-        return res.status(500).json({ message: "Audio file missing on server", path: localPath });
+      if (!req.file) {
+        return res.status(400).json({ message: "No audio provided" });
       }
 
-      // Format audioUrl as relative path (frontend will normalize through Vite proxy)
-      // This ensures it goes through API Gateway instead of direct service port
-      audioUrl = `/uploads/${req.file.filename}`;
-      
-      // Verify file exists after upload
-      if (!fs.existsSync(localPath)) {
-        console.error("createSubmission: audio file not found after upload - learnerController.js:503", localPath);
-        return res.status(500).json({ message: "Audio file missing on server", path: localPath });
+      const validation = await validateAudio(req.file);
+      if (!validation.valid) {
+        return res.status(400).json({ message: "Unsupported or invalid audio file" });
       }
-      
-      console.log(`[DEBUG] Audio file uploaded successfully: ${req.file.filename}, path: ${localPath}, url: ${audioUrl}`);
+      if (!learnerId || !challengeId) {
+        await removeUploadedFile(req.file.path);
+        return res.status(400).json({ message: "Missing learnerId or challengeId" });
+      }
+
+      const audioUrl = `/uploads/${req.file.filename}`;
+      const learnerIdNumber = positiveSubmissionId(learnerId, "learner_id");
+      validateSubmissionContext(req.body, learnerIdNumber);
+      const challengeIdNumber = positiveSubmissionId(challengeId, "challenge_id");
+      const assignmentIdNumber = null;
+      cleanupSafe = false;
+      const submission = await withSubmissionAttempt({
+        pool, learnerId: learnerIdNumber, challengeId: challengeIdNumber,
+        expectedAttempt: req.body.expected_attempt_number
+      }, async (client, attemptNumber) => {
+        let transcript = null;
+        try {
+          const { json: transcriptJson } = await transcribeAudio(req.file.path, {
+            model: "base", computeType: "float32"
+          });
+          transcript = transcriptJson;
+        } catch (err) {
+          console.error("createSubmission: WhisperX transcription failed", err);
+          try {
+            const out = await transcribeAudio(req.file.path, { model: "base" });
+            transcript = out.json ?? out.text ?? null;
+          } catch (fallbackError) {
+            console.error("createSubmission: WhisperX fallback failed", fallbackError);
+          }
+        }
+        const saved = await service.createSubmission({
+          learnerId: learnerIdNumber, challengeId: challengeIdNumber,
+          assignmentId: assignmentIdNumber, attemptNumber, audioUrl, transcript
+        }, client);
+        await service.upsertLearnerChallenge({
+          learnerId: learnerIdNumber, challengeId: challengeIdNumber,
+          assignmentId: assignmentIdNumber, status: "in_progress", attempts: 1
+        }, client);
+        return saved;
+      });
+      submissionCreated = true;
+      // Workers and AI notifications must only see a committed submission.
+      service.notifySubmissionCreated?.(submission);
 
       try {
-        const { json: transcriptJson } = await runWhisperX(localPath, {
-          model: "base",
-          computeType: "float32"
-        });
-        transcript = transcriptJson;
+        await enqueueJob("analyzeSubmission", { submissionId: submission.id });
       } catch (err) {
-        console.error("createSubmission: whisperx transcription failed - learnerController.js:292", err);
+        console.error("createSubmission: analysis enqueue failed", err);
+        await service.updateSubmissionStatus(submission.id, "failed");
+        return res.status(503).json({
+          message: "Submission was saved but processing could not be queued",
+          submissionId: submission.id,
+          audio_url: audioUrl,
+          status: "failed"
+        });
+      }
+
+      return res.json({
+        submissionId: submission.id,
+        status: "pending",
+        audio_url: audioUrl
+      });
+    } catch (err) {
+      if (req.file?.path && !submissionCreated && (cleanupSafe || err.discardUploadSafe)) {
         try {
-          // Fallback: use runWhisperX directly
-          const out = await runWhisperX(localPath, { model: "base" });
-          transcript = out.json ?? out.text ?? null;
-        } catch (err2) {
-          console.error("Fallback runWhisperX failed - learnerController.js:299", err2);
-          transcript = null;
+          await removeUploadedFile(req.file.path);
+        } catch (cleanupError) {
+          console.error("createSubmission: temporary upload cleanup failed", cleanupError);
+          return res.status(500).json({ message: "Audio upload cleanup failed" });
         }
       }
-    } else {
-      return res.status(400).json({ message: "No audio provided" });
+      console.error("createSubmission error", err);
+      return res.status(err.status || 500).json({ message: err.status ? err.message : "Server error", code: err.code });
     }
-
-    const attemptNumber = await learnerService.getNextAttemptNumber(learnerId, challengeId);
-
-    const submission = await learnerService.createSubmission({
-      learnerId: parseInt(learnerId),
-      challengeId: parseInt(challengeId),
-      assignmentId: assignmentId ? parseInt(assignmentId) : null,
-      attemptNumber,
-      audioUrl,
-      transcript
-    });
-
-    await learnerService.upsertLearnerChallenge({
-      learnerId: parseInt(learnerId),
-      challengeId: parseInt(challengeId),
-      assignmentId: assignmentId ? parseInt(assignmentId) : null,
-      status: "in_progress",
-      attempts: 1
-    });
-
-  
-    await enqueue("analyzeSubmission", { submissionId: submission.id });
-
-    res.json({
-      submissionId: submission.id,
-      status: "pending",
-      audio_url: audioUrl
-    });
-  } catch (err) {
-    console.error("createSubmission error: - learnerController.js:335", err);
-    res.status(500).json({ message: "Server error", error: err.message });
-  }
+  };
 }
+
+export const createSubmission = createSubmissionHandler();
 
 export async function getSubmissionAnalysis(req, res) {
   try {
@@ -585,19 +598,11 @@ export async function getSubmissionAnalysis(req, res) {
   }
 }
 
-export async function analyzeSubmission(req, res) {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (Number.isNaN(id)) return res.status(400).json({ message: "Invalid submission id" });
-
-    const analysisRow = await learnerService.analyzeSubmissionWithAI(id);
-    const updatedSubmission = await learnerService.getSubmissionById(id);
-    res.json({ submission: updatedSubmission, analysis: analysisRow });
-  } catch (err) {
-    console.error("analyzeSubmission error: - learnerController.js:364", err);
-    res.status(500).json({ message: "Server error" });
-  }
-}
+export const analyzeSubmission = createAnalyzeSubmissionHandler({
+  analyzeSubmissionWithAI: learnerService.analyzeSubmissionWithAI,
+  getSubmissionById: learnerService.getSubmissionById,
+  getAnalysisBySubmissionId: learnerService.getAnalysisBySubmissionId
+});
 
 // GET /api/learners/submissions/:id
 export async function getSubmissionById(req, res) {
@@ -642,11 +647,14 @@ export async function getSubmissionById(req, res) {
 export async function reviewSubmissionByMentor(req, res) {
   try {
     const id = parseInt(req.params.id);
-    const { mentorId, finalScore, feedback, overrideAI } = req.body;
-    const updated = await learnerService.reviewSubmissionByMentor(id, { mentorId, finalScore, feedback, overrideAI });
+    const { mentorId, finalScore, feedback } = req.body;
+    const updated = await learnerService.reviewSubmissionByMentor(id, { mentorId, finalScore, feedback });
     res.json({ submission: updated });
   } catch (err) {
     console.error("reviewSubmissionByMentor error: - learnerController.js:389", err);
+    if (err.code === "MENTOR_SCORE_INVALID") {
+      return res.status(400).json({ message: err.message, code: err.code });
+    }
     res.status(500).json({ message: "Server error" });
   }
 }
@@ -684,9 +692,21 @@ export async function updateLearnerChallenge(req, res) {
 
 export async function listSubmissionsForLearner(req, res) {
   try {
-    const learnerId = parseInt(req.params.learnerId);
-    const rows = await learnerService.listSubmissionsForLearner(learnerId);
-    res.json({ submissions: rows });
+    const learnerId = Number(req.params.learnerId);
+    const limit = req.query.limit === undefined ? 100 : Number(req.query.limit);
+    const offset = req.query.offset === undefined ? 0 : Number(req.query.offset);
+    if (!Number.isSafeInteger(learnerId) || learnerId <= 0 ||
+        !Number.isInteger(limit) || limit < 1 || limit > 100 ||
+        !Number.isSafeInteger(offset) || offset < 0 || offset > 2_000_000_000 ||
+        (req.query.limit !== undefined && (typeof req.query.limit !== "string" || !/^\d+$/.test(req.query.limit))) ||
+        (req.query.offset !== undefined && (typeof req.query.offset !== "string" || !/^\d+$/.test(req.query.offset)))) {
+      return res.status(400).json({ message: "Invalid submission pagination" });
+    }
+    const rows = await learnerService.listSubmissionsForLearner(learnerId, { limit: limit + 1, offset });
+    res.json({
+      submissions: rows.slice(0, limit),
+      pagination: { limit, offset, has_more: rows.length > limit }
+    });
   } catch (err) {
     console.error("listSubmissionsForLearner error: - learnerController.js:431", err);
     res.status(500).json({ message: "Server error" });

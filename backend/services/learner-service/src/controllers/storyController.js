@@ -2,23 +2,50 @@
 import * as storyService from "../services/storyService.js";
 import * as fptTtsService from "../services/fptTtsService.js";
 import pool from "../config/db.js";
+import { discardRejectedUpload } from "../utils/conversationTurn.js";
+import {ensureStoryRetentionSchema,assertStoryLifetime,cleanupExpiredStorySessions} from '../../../shared/practiceRetention.js';
+import {createFptSpeechGate,fptSpeechFailure} from '../utils/fptSpeechPolicy.js';
+
+const requestFptSpeech=createFptSpeechGate({synthesize:fptTtsService.generateSpeechForFrontend});
+
+export async function getActiveStorySession(req, res) {
+  try {
+    const result = await pool.query(`
+      SELECT id AS session_id FROM story_sessions
+      WHERE learner_id = $1 AND status = 'active' AND EXISTS(SELECT 1 FROM story_session_lifetimes t
+        WHERE t.story_session_id=story_sessions.id AND t.auth_session_id=$2 AND t.cleaned_at IS NULL AND t.ended_at IS NULL)
+      ORDER BY created_at DESC, id DESC LIMIT 1
+    `, [req.learnerId,req.session?.id]);
+    res.json({ active_session: result.rows[0] || null });
+  } catch {
+    res.status(500).json({ message: "Unable to find active story session" });
+  }
+}
 
 /**
  * Tạo session mới cho story mode
  */
 export async function createStorySession(req, res) {
   try {
-    const { learner_id, user_id } = req.body;
-
-    const session = await storyService.createStorySession(learner_id, user_id);
+    const replacement = req.body.replace_session_id;
+    if (replacement !== undefined && (!/^[1-9]\d*$/.test(String(replacement)) || !Number.isSafeInteger(Number(replacement)) || Number(replacement) > 2147483647)) {
+      return res.status(400).json({ message: "Invalid replace_session_id" });
+    }
+    await ensureStoryRetentionSchema(pool);
+    const session = await storyService.createStorySession(req.learnerId, {
+      authSessionId:req.session?.id,userId:req.user.id,
+      ...(replacement===undefined?{}:{replaceSessionId:Number(replacement)})
+    });
 
     res.json({
       session_id: session.id,
-      initial_message: session.initial_message
+      initial_message: session.initial_message,
+      revision: session.revision,
+      resumed: session.resumed
     });
   } catch (err) {
     console.error("❌ createStorySession error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    res.status(err.status || 500).json({ message: err.message || "Server error" });
   }
 }
 
@@ -69,18 +96,24 @@ export async function processStoryMessage(req, res) {
     const result = await storyService.processStoryMessage(
       parsedSessionId,
       text || null,
-      audioUrl
+      audioUrl,
+      req.body.expected_revision,
+      {authSessionId:req.session?.id}
     );
 
     // Trả về cả response, transcript text và transcript JSON nếu có
     res.json({ 
       response: result.response || result,
+      revision: result.revision,
       transcript: result.transcript || text || null,
       transcriptJson: result.transcriptJson || null // Full transcript với words và timings
     });
   } catch (err) {
     console.error("❌ processStoryMessage error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    if (err.discardUploadSafe) await discardRejectedUpload(req.file);
+    res.status(err.status || 500).json({ message: err.message || "Server error", code: err.code });
+  } finally {
+    await cleanupExpiredStorySessions(pool,{userId:req.user?.id}).catch(()=>{});
   }
 }
 
@@ -100,6 +133,7 @@ export async function getStoryHistory(req, res) {
       return res.status(400).json({ message: "Invalid session_id" });
     }
     
+    await assertStoryLifetime(pool,parsedSessionId,req.session?.id);
     const result = await pool.query(
       `SELECT 
         id,
@@ -111,7 +145,7 @@ export async function getStoryHistory(req, res) {
         created_at
        FROM story_conversations 
        WHERE session_id = $1 
-       ORDER BY created_at ASC`,
+       ORDER BY created_at ASC, id ASC`,
       [parsedSessionId]
     );
     
@@ -145,131 +179,44 @@ export async function getStoryHistory(req, res) {
     });
   } catch (err) {
     console.error("❌ getStoryHistory error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    res.status(err.status||500).json({ message: err.message || "Server error",code:err.code });
   }
 }
 
 /**
- * Generate TTS audio using CSM (preferred) or FPT.AI (fallback)
+ * Generate speech audio with FPT.AI when available; other voices use browser TTS.
  */
 export async function generateTTS(req, res) {
-  // Set timeout cho request (70 giây - đủ cho CSM load model lần đầu)
-  let timeoutId = null;
-  let responseSent = false;
-
-  const sendResponse = (status, data) => {
-    if (responseSent) return;
-    responseSent = true;
-    if (timeoutId) clearTimeout(timeoutId);
-    if (!res.headersSent) {
-      res.status(status).json(data);
-    }
-  };
-
-  timeoutId = setTimeout(() => {
-    sendResponse(504, { 
-      success: false,
-      message: "TTS request timeout, using browser TTS",
-      fallback: true
-    });
-  }, 70000); // 70 giây timeout (đủ cho CSM 60s + buffer)
-
+  const { text, voiceType = 'female', voiceOrigin = 'native' } = req.body || {};
+  if (typeof text !== 'string' || text.trim().length < 3 || text.length > 5000) {
+    return res.status(400).json({ success: false, message: 'Text must contain 3-5000 characters' });
+  }
+  if (!['female', 'male'].includes(voiceType) || !['native', 'asian'].includes(voiceOrigin)
+    || (voiceOrigin === 'asian' && voiceType !== 'female')) {
+    return res.status(400).json({ success: false, message: 'Invalid voice selection' });
+  }
+  if (voiceOrigin === 'native') {
+    return res.json({ success: false, fallback: true, provider: 'browser' });
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45000);
+  const disconnected = () => { if (!res.writableEnded) controller.abort(); };
+  res.on('close', disconnected);
   try {
-    const { text, voiceType, voiceOrigin, region, useCSM, context } = req.body;
-
-    if (!text || text.length < 3) {
-      return sendResponse(400, { message: "Text must be at least 3 characters" });
-    }
-
-    if (text.length > 5000) {
-      return sendResponse(400, { message: "Text must not exceed 5000 characters" });
-    }
-
-    // Thay thế CSM bằng OpenRouter để generate text response
-    const shouldUseOpenRouter = useCSM !== false && process.env.USE_OPENROUTER_RESPONSE !== 'false';
-    
-    if (shouldUseOpenRouter) {
-      try {
-        const { callOpenRouter } = await import("../utils/aiServiceClient.js");
-        
-        // Tạo messages cho conversation
-        const messages = [
-          {
-            role: "system",
-            content: "You are a friendly AI companion. Respond warmly and naturally to the user's story. Keep responses short and engaging."
-          },
-          {
-            role: "user", 
-            content: text
-          }
-        ];
-        
-        const aiResult = await callOpenRouter(messages, { 
-          model: "openai/gpt-4o-mini",
-          temperature: 0.7,
-          max_tokens: 200
-        });
-
-        if (aiResult.success && aiResult.response) {
-          return sendResponse(200, {
-            success: true,
-            text: aiResult.response,
-            source: 'openrouter'
-          });
-        } else {
-          console.warn("⚠️ OpenRouter response failed, falling back to FPT.AI:", aiResult.error);
-          // Fall through to FPT.AI
-        }
-      } catch (err) {
-        console.warn("⚠️ OpenRouter error, falling back to FPT.AI:", err.message);
-        // Fall through to FPT.AI
-      }
-    }
-
-    // Dùng FPT.AI cho giọng Việt Nam (cả nam và nữ) - fallback
-    if (voiceOrigin === 'asian') {
-      try {
-        // Luôn dùng giọng miền Bắc, bỏ qua region parameter
-        // Thêm timeout ngắn hơn (20 giây) cho FPT.AI
-        const result = await Promise.race([
-          fptTtsService.generateSpeechForFrontend(
-            text,
-            voiceType,
-            voiceOrigin,
-            'north' // Luôn dùng miền Bắc
-          ),
-          new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('FPT.AI TTS timeout')), 20000)
-          )
-        ]);
-
-        if (result) {
-          return sendResponse(200, {
-            success: true,
-            audioBase64: result.audioBase64,
-            mimeType: result.mimeType
-          });
-        }
-      } catch (err) {
-        console.error("❌ FPT.AI TTS error:", err);
-        // Fallback: trả về null để frontend dùng SpeechSynthesis
-        return sendResponse(200, {
-          success: false,
-          message: "FPT.AI TTS unavailable, using browser TTS",
-          fallback: true
-        });
-      }
-    }
-
-    // Các giọng khác dùng SpeechSynthesis ở frontend
-    return sendResponse(200, {
-      success: false,
-      message: "Use browser SpeechSynthesis for this voice type",
-      fallback: true
+    const result = await requestFptSpeech(text, voiceType, voiceOrigin, 'north', {
+      signal: controller.signal
     });
-  } catch (err) {
-    console.error("❌ generateTTS error:", err);
-    return sendResponse(500, { message: err.message || "Server error" });
+    if (res.destroyed) return;
+    if(result?.success===false)return res.json({...result,provider:'browser'});
+    return res.json(result ? {
+      success: true, provider: 'fpt', voice: 'banmai',
+      audioBase64: result.audioBase64, mimeType: result.mimeType
+    } : { success: false, fallback: true, provider: 'browser',
+      message: 'FPT.AI TTS unavailable, using browser TTS' });
+  } catch(error) {
+    if (!res.destroyed) return res.json({...fptSpeechFailure(error),provider:'browser'});
+  } finally {
+    clearTimeout(timeout);
+    res.removeListener('close', disconnected);
   }
 }
-

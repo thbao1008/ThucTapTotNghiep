@@ -963,3 +963,5 @@
   .challenge-left-panel .scrollable-vertical, .challenge-right-panel .scrollable-vertical { max-height: 50vh; }
   .transcript-scroll { max-height: 30vh; }
 }
+.challenge-detail-page .mentor-link{border:0;background:transparent;color:#256b57;font:inherit;text-decoration:underline;text-underline-offset:3px;cursor:pointer;padding:2px 4px;border-radius:4px}
+.challenge-detail-page .mentor-link:focus-visible{outline:2px solid #258869;outline-offset:2px}

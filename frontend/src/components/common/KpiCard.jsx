@@ -1,3 +1,4 @@
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿// src/components/common/KpiCard.jsx
 import React from "react";
 
@@ -8,10 +9,10 @@ export default function KpiCard({ title, value, delta, icon, color = "var(--prim
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 12, color: "var(--muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {title}
+            <UiText>{title}</UiText>
           </div>
           <div style={{ fontSize: 20, fontWeight: 700, color: "var(--text-900)", marginTop: 6 }}>
-            {value}
+            <UiText>{value}</UiText>
           </div>
         </div>
 
@@ -30,15 +31,14 @@ export default function KpiCard({ title, value, delta, icon, color = "var(--prim
             }}
             aria-hidden
           >
-            {icon}
+            <UiText>{icon}</UiText>
           </div>
         ) : null}
       </div>
 
       {delta !== undefined && delta !== null && (
         <div style={{ marginTop: 8, fontSize: 13, color: deltaIsPositive ? "green" : "crimson" }}>
-          {deltaIsPositive ? `+${delta}%` : `${delta}%`} so với kỳ trước
-        </div>
+          <UiText>{deltaIsPositive ? `+${delta}%` : `${delta}%`}</UiText>{" "}<UiText text={"so với kỳ trước"} />{" "}</div>
       )}
     </div>
   );

@@ -1,5 +1,11 @@
 import * as communityService from "../services/communityService.js";
 import pool from "../config/db.js";
+import {communityId,readablePost} from '../services/communityInteractions.js';
+
+export async function readablePostGuard(req,res,next) {
+  try{const id=communityId(req.params.postId);await readablePost(pool,id,req.user.id,req.user.role);return next();}
+  catch(error){return res.status(error.status||503).json({message:error.status?error.message:'Unable to load this discussion'});}
+}
 
 function formatPostUrls(post, baseUrl) {
   return {
@@ -236,6 +242,9 @@ export async function reviewPost(req, res) {
     if (!['approved', 'rejected'].includes(action)) {
       return res.status(400).json({ message: "Invalid action. Must be 'approved' or 'rejected'" });
     }
+    if(action==='rejected' && (typeof rejectionReason!=='string'||!rejectionReason.trim())) {
+      return res.status(400).json({message:'Vui lòng nhập lý do từ chối'});
+    }
 
     const post = await communityService.reviewPost({
       postId: parseInt(id),
@@ -283,6 +292,7 @@ export async function togglePinPost(req, res) {
 
     const { id } = req.params;
     const { isPinned } = req.body;
+    if(typeof isPinned!=='boolean')return res.status(400).json({message:'Trạng thái ghim không hợp lệ'});
 
     const post = await communityService.togglePinPost(parseInt(id), isPinned);
     if (!post) {
@@ -301,7 +311,9 @@ export async function createComment(req, res) {
     const userId = req.user.id || req.user.userId;
     const role = req.user.role;
     const { postId } = req.params;
-    const { content, audioUrl, parentCommentId } = req.body;
+    const { audioUrl, parentCommentId } = req.body;
+    if(req.body.content!==undefined&&typeof req.body.content!=='string')return res.status(400).json({message:'Invalid comment text'});
+    const content=req.body.content?.trim();
 
     let finalAudioUrl = audioUrl || null;
     if (req.file) {
@@ -318,18 +330,18 @@ export async function createComment(req, res) {
     }
 
     const comment = await communityService.createComment({
-      postId: parseInt(postId),
+      postId: communityId(postId),
       authorId: userId,
       authorRole,
       content: content || null,
       audioUrl: finalAudioUrl,
-      parentCommentId: parentCommentId ? parseInt(parentCommentId) : null
+      parentCommentId: parentCommentId ? communityId(parentCommentId) : null
     });
 
     res.status(201).json({ comment, message: "Comment đã được đăng" });
   } catch (err) {
-    console.error("createComment error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    if(!err.status)console.error("createComment error:", err);
+    res.status(err.status||500).json({ message: err.status?err.message:"Server error" });
   }
 }
 
@@ -381,11 +393,11 @@ export async function toggleLike(req, res) {
       return res.status(400).json({ message: "Must provide either postId or commentId" });
     }
 
-    const result = await communityService.toggleLike({ userId, postId, commentId });
+    const result = await communityService.toggleLike({ userId, role:req.user.role, postId, commentId });
     res.json(result);
   } catch (err) {
-    console.error("toggleLike error:", err);
-    res.status(500).json({ message: "Server error", error: err.message });
+    if(!err.status)console.error("toggleLike error:", err);
+    res.status(err.status||500).json({ message: err.status?err.message:"Server error" });
   }
 }
 

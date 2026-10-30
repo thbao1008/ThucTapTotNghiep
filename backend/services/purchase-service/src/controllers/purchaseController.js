@@ -7,7 +7,7 @@ export async function getAllPurchases(req, res) {
     res.json({ success: true, purchases });
   } catch (err) {
     console.error("getAllPurchases error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(err.status || 500).json({ success: false, message: "Server error" });
   }
 }
 
@@ -18,7 +18,7 @@ export async function listLearnerPurchases(req, res) {
     res.json({ success: true, purchases });
   } catch (err) {
     console.error("listLearnerPurchases error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(err.status || 500).json({ success: false, message: "Server error" });
   }
 }
 
@@ -29,7 +29,7 @@ export async function createNewPurchase(req, res) {
     res.status(201).json({ success: true, purchase });
   } catch (err) {
     console.error("createNewPurchase error:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(err.status || 500).json({ success: false, message: "Server error" });
   }
 }
 
@@ -41,7 +41,7 @@ export async function renewPurchaseController(req, res) {
     res.json({ success: true, ...result });
   } catch (err) {
     console.error("renewPurchaseController error:", err);
-    res.status(500).json({ success: false, message: err.message || "Server error" });
+    res.status(err.status || 500).json({ success: false, message: err.message || "Server error" });
   }
 }
 
@@ -52,7 +52,7 @@ export async function changePackageController(req, res) {
     res.json({ success: true, ...result });
   } catch (err) {
     console.error("changePackageController error:", err);
-    res.status(500).json({ success: false, message: err.message || "Server error" });
+    res.status(err.status || 500).json({ success: false, message: err.message || "Server error" });
   }
 }
 

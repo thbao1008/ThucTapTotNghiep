@@ -1,7 +1,10 @@
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 // src/components/common/PDFPreview.jsx
 import React, { useState, useEffect } from "react";
 import { FiX } from "react-icons/fi";
 import { normalizeFileUrl } from "../../utils/apiHelpers";
+import { isProtectedUploadUrl, readAuthToken } from "../../utils/authenticatedMedia.jsx";
 
 export default function PDFPreview({ url, title, onClose }) {
   const [loading, setLoading] = useState(true);
@@ -14,22 +17,24 @@ export default function PDFPreview({ url, title, onClose }) {
   useEffect(() => {
     setLoading(true);
     setError(false);
+    setBlobUrl(null);
+    const controller = new AbortController();
     
     // Fetch PDF as blob để tránh browser download
     const fetchPDF = async () => {
       try {
-        console.log("[PDFPreview] Loading PDF from URL:", fullUrl);
+        const token = isProtectedUploadUrl(fullUrl) ? readAuthToken() : null;
         const response = await fetch(fullUrl, {
           method: "GET",
           headers: {
-            "Accept": "application/pdf"
+            "Accept": "application/pdf",
+            ...(token ? { Authorization: `Bearer ${token}` } : {})
           },
+          signal: controller.signal,
           credentials: "include" // Include cookies for authentication
         });
         
-        console.log("[PDFPreview] Response status:", response.status, response.statusText);
         if (!response.ok) {
-          console.error("[PDFPreview] Failed to load PDF:", response.status, response.statusText);
           throw new Error(`Failed to load PDF: ${response.status} ${response.statusText}`);
         }
         
@@ -40,6 +45,7 @@ export default function PDFPreview({ url, title, onClose }) {
         }
         
         const blob = await response.blob();
+        if (controller.signal.aborted) return;
         
         // Đảm bảo blob là PDF
         if (blob.type !== "application/pdf") {
@@ -54,9 +60,11 @@ export default function PDFPreview({ url, title, onClose }) {
         
         setLoading(false);
       } catch (err) {
-        console.error("Error loading PDF:", err);
-        setError(true);
-        setLoading(false);
+        if (!controller.signal.aborted) {
+          console.error("Unable to load PDF preview:", err.message);
+          setError(true);
+          setLoading(false);
+        }
       }
     };
 
@@ -64,10 +72,7 @@ export default function PDFPreview({ url, title, onClose }) {
       fetchPDF();
     }
 
-    // Cleanup blob URL khi unmount
-    return () => {
-      // Cleanup sẽ được xử lý trong useEffect riêng
-    };
+    return () => controller.abort();
   }, [url, fullUrl]);
 
   // Cleanup blob URL khi component unmount hoặc url thay đổi
@@ -109,7 +114,7 @@ export default function PDFPreview({ url, title, onClose }) {
           textOverflow: "ellipsis", 
           whiteSpace: "nowrap" 
         }}>
-          {title || "Xem tài liệu PDF"}
+          <UiText>{title || "Xem tài liệu PDF"}</UiText>
         </h3>
         {onClose && (
           <button
@@ -127,7 +132,7 @@ export default function PDFPreview({ url, title, onClose }) {
               cursor: "pointer",
               marginLeft: "12px"
             }}
-            title="Đóng"
+            title={englishText("Đóng")}
           >
             <FiX size={18} />
           </button>
@@ -151,9 +156,7 @@ export default function PDFPreview({ url, title, onClose }) {
             color: "white",
             fontSize: "14px",
             zIndex: 1
-          }}>
-            Đang tải PDF...
-          </div>
+          }}>{" "}<UiText text={"Đang tải PDF..."} />{" "}</div>
         )}
         
         {error ? (
@@ -166,7 +169,7 @@ export default function PDFPreview({ url, title, onClose }) {
             color: "white",
             padding: "20px"
           }}>
-            <p>Không thể hiển thị PDF. Vui lòng thử lại sau.</p>
+            <p><UiText text={"Không thể hiển thị PDF. Vui lòng thử lại sau."} /></p>
           </div>
         ) : blobUrl ? (
           <embed

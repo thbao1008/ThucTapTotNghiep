@@ -1,0 +1,15 @@
+import '../backend/services/shared/loadBackendEnv.js';
+import fs from 'node:fs/promises';import path from 'node:path';import {createRequire} from 'node:module';import {spawnSync} from 'node:child_process';import {Client} from 'pg';
+import {root,dependencyFolders} from './setup.mjs';import {databaseConfig,checkDatabase} from './database.mjs';
+import {speechEnvironment} from '../backend/services/shared/speechEnvironment.js';
+const results=[];const add=(name,ok,detail='')=>results.push({name,ok,detail});
+add('Node.js',Number(process.versions.node.split('.')[0])>=22,process.versions.node);
+for(const folder of dependencyFolders){const directory=path.resolve(root,folder);let missing=[];try{const manifest=JSON.parse(await fs.readFile(path.join(directory,'package.json'),'utf8'));const require=createRequire(path.join(directory,'package.json'));for(const name of Object.keys({...manifest.dependencies,...manifest.devDependencies})){try{require.resolve(name);}catch{missing.push(name);}}add(`Dependencies: ${folder}`,!missing.length,missing.length?`missing ${missing.join(', ')}`:'ready');}catch{add(`Dependencies: ${folder}`,false,'run SETUP_AESP.cmd');}}
+add('JWT secret',Buffer.byteLength(process.env.JWT_SECRET||'')>=32,'value not displayed');add('Groq key',Boolean(process.env.GROQ_API_KEY?.trim()),'value not displayed');add('Groq provider',(process.env.AI_PROVIDER||'groq')==='groq');
+add('Optional FPT key',true,process.env.FPT_AI_API_KEY?'configured; value not displayed':'browser speech fallback');
+let ffmpeg=spawnSync('ffmpeg',['-version'],{stdio:'ignore',windowsHide:true,env:speechEnvironment(path.join(root,'backend'))});let ffmpegReady=ffmpeg.status===0;
+add('FFmpeg',ffmpegReady,ffmpegReady?'ready':'install and add bin to PATH');
+const python=process.env.WHISPERX_PYTHON_EXECUTABLE||path.join(root,'backend/.venv-whisperx',process.platform==='win32'?'Scripts/python.exe':'bin/python');
+const speech=spawnSync(python,['-c','import sys; from importlib.metadata import version; assert sys.version_info[:2] == (3,12); [version(p) for p in ["whisperx","faster-whisper","ctranslate2","torch","torchaudio","torchvision","langdetect","numpy"]]; assert version("torch").split("+")[0] == "2.8.0"; assert version("torchaudio").split("+")[0] == "2.8.0"; assert version("torchvision").split("+")[0] == "0.23.0"'],{stdio:'ignore',windowsHide:true,timeout:15000});add('Python 3.12 speech dependencies',speech.status===0,'no model download or microphone used');
+const client=new Client(databaseConfig());try{await client.connect();const result=await checkDatabase(client);add('PostgreSQL schema',result.missingTables.length===0,result.missingTables.length?`missing ${result.missingTables.join(', ')}`:`${result.requiredTables} active tables; aesp.public loopback:5432`);}catch{add('PostgreSQL schema',false,'check .env.local and run empty-database initialization');}finally{await client.end();}
+console.log(JSON.stringify({checks:results,ok:results.every(x=>x.ok)},null,2));if(results.some(x=>!x.ok))process.exitCode=1;

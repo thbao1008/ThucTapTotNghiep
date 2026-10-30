@@ -1,0 +1,19 @@
+import fs from 'node:fs/promises';import path from 'node:path';import {fileURLToPath,pathToFileURL} from 'node:url';import {spawnSync} from 'node:child_process';import {randomBytes} from 'node:crypto';
+export const root=fileURLToPath(new URL('../',import.meta.url));
+export const dependencyFolders=['.','frontend','backend/services','backend/services/shared','backend/services/api-gateway',...['notification','community','package','purchase','user','mentor','learner','admin','ai','file'].map(x=>`backend/services/${x}-service`)];
+export function run(executable,args,cwd=root){const r=spawnSync(executable,args,{cwd,stdio:'inherit',windowsHide:true,env:process.env});if(r.error||r.status!==0)throw Error(`Setup step failed (${path.basename(executable)}; exit ${r.status??'unavailable'}).`);}
+export async function createLocalEnv(rootDir=root){const destination=path.join(rootDir,'backend/.env.local');let source=await fs.readFile(path.join(rootDir,'backend/.env.example'),'utf8');source=source.replaceAll('__GENERATE__',()=>randomBytes(40).toString('hex'));try{await fs.writeFile(destination,source,{flag:'wx',mode:0o600});console.log('Created backend/.env.local with distinct random internal secrets. Fill DB_PASSWORD and GROQ_API_KEY.');return true;}catch(e){if(e.code!=='EEXIST')throw e;console.log('Existing backend/.env.local preserved.');return false;}}
+async function main(){const options=new Set(process.argv.slice(2)),allowed=['--dry-run','--install','--speech','--models'];for(const option of options)if(!allowed.includes(option))throw Error('Options: --dry-run --install --speech --models');
+if(options.has('--models')&&!options.has('--speech'))throw Error('Use --speech together with --models.');
+if(Number(process.versions.node.split('.')[0])<22)throw Error('Install Node.js 24 LTS (minimum 22) first.');
+console.log('AESP local setup. PostgreSQL and existing data are never changed by this command.');
+if(options.has('--dry-run')){console.log(JSON.stringify({dependencyFolders,environment:'create only if absent',python:'3.12, existing venv preserved',database:'manual empty aesp + npm run db:init',models:'explicit --models download only'},null,2));return;}
+await createLocalEnv();
+if(options.has('--install')){const npmCli=process.env.npm_execpath||path.join(path.dirname(process.execPath),'node_modules/npm/bin/npm-cli.js');await fs.access(npmCli);
+for(const folder of dependencyFolders){const cwd=path.resolve(root,folder);const locked=await fs.access(path.join(cwd,'package-lock.json')).then(()=>true,()=>false);console.log(`Installing ${folder} (${locked?'locked':'manifest'}).`);run(process.execPath,[npmCli,locked?'ci':'install','--no-audit','--no-fund'],cwd);}}
+if(options.has('--speech')){await import('../backend/services/shared/loadBackendEnv.js');const python=path.join(root,'backend/.venv-whisperx',process.platform==='win32'?'Scripts/python.exe':'bin/python');const exists=await fs.access(python).then(()=>true,()=>false);
+if(exists)console.log('Existing speech virtual environment preserved; no pip changes.');else{const executable=process.platform==='win32'?'py':'python3.12';const flags=process.platform==='win32'?['-3.12']:[];run(executable,[...flags,'-m','venv',path.join(root,'backend/.venv-whisperx')]);run(python,['-m','pip','install','--upgrade','pip']);run(python,['-m','pip','install','torch==2.8.0','torchaudio==2.8.0','torchvision==0.23.0','--index-url','https://download.pytorch.org/whl/cpu']);run(python,['-m','pip','install','-r',path.join(root,'requirements.txt')]);}
+if(options.has('--models'))run(python,[path.join(root,'scripts/prepare-speech.py'),'--download-models']);}
+console.log('Next: edit backend/.env.local; create an empty aesp database; npm run db:init; npm run admin:create; npm run doctor; START_AESP.cmd.');
+}
+if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href)main().catch(e=>{console.error(e.message);process.exitCode=1;});

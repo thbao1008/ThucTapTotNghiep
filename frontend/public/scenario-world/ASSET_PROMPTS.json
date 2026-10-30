@@ -1,0 +1,22 @@
+{
+  "tool": "built-in image_gen",
+  "created": "2026-10-25",
+  "assets": [
+    {
+      "path": "npcs/emma.png", "transparent_background": true,
+      "prompt": "Use case: illustration-story. Asset: original reusable NPC character cutout for AESP English conversation learning web app. One adult woman Emma, mid twenties, chestnut shoulder-length hair, warm expressive face, sage-green casual cardigan over cream top, dark jeans. Polished contemporary 2D visual novel editorial illustration, clean soft edges, subtly painted flat colors, natural adult proportions, welcoming neutral smile, standing relaxed, three-quarter frontal view, full body including feet, hands visible and anatomically natural. Entire character centered with generous padding. Actual transparent background, no scene, no text, no name label, no logo or watermark. Consistent cozy educational game art direction, not photorealistic, not a child."
+    },
+    {
+      "path": "npcs/minh.png", "transparent_background": true,
+      "prompt": "Use case: illustration-story. Asset: original reusable NPC character cutout for AESP English conversation learning web app. One adult Vietnamese man Minh, late twenties, short neat black hair, expressive friendly face, dark navy casual overshirt over light beige T-shirt, brown chinos, simple shoes. Polished contemporary 2D visual novel editorial illustration, clean soft edges, subtly painted flat colors, natural adult proportions, welcoming neutral smile, standing relaxed, three-quarter frontal view, full body including feet, hands visible and anatomically natural. Entire character centered with generous padding. Actual transparent background, no scene, no text, no name label, no logo or watermark. Consistent cozy educational game art direction, not photorealistic, not a child."
+    },
+    {
+      "path": "npcs/maya.png", "transparent_background": true,
+      "prompt": "Use case: illustration-story. Asset: original reusable NPC character cutout for AESP English conversation learning web app. One adult woman Maya, early thirties, medium-brown skin, dark curly hair tied loosely back, expressive friendly face, muted terracotta casual blazer over white top, tailored dark trousers, simple shoes. Polished contemporary 2D visual novel editorial illustration, clean soft edges, subtly painted flat colors, natural adult proportions, welcoming neutral smile, standing relaxed, three-quarter frontal view, full body including feet, hands visible and anatomically natural. Entire character centered with generous padding. Actual transparent background, no scene, no text, no name label, no logo or watermark. Consistent cozy educational game art direction, not photorealistic, not a child."
+    },
+    {
+      "path": "scenes/cafe.png", "transparent_background": false,
+      "prompt": "Use case: illustration-story. Asset: wide 16:9 background scene for AESP English conversation visual novel web app. A welcoming modern neighborhood coffee shop interior, daylight through large windows, warm wood coffee counter in background, plants, tables and cozy chairs, clear spacious foreground where character cutouts can be placed. Eye-level perspective, polished contemporary 2D visual novel editorial illustration, clean soft edges, subtly painted flat colors, soft warm light, muted sage green, cream, terracotta and navy accents. Environment only: no people anywhere, no silhouettes, no readable signage or text, no logos or watermark, no interface or dialogue boxes. Calm detailed but uncluttered composition, foreground lower half relatively open for NPCs. Not pixel art or photorealism."
+    }
+  ]
+}

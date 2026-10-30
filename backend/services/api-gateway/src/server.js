@@ -1,15 +1,12 @@
-import dotenv from "dotenv";
+import { createAdminProxy } from './adminProxy.js';
+import "../../shared/loadBackendEnv.js";
 import express from "express";
 import cors from "cors";
 import { createProxyMiddleware } from "http-proxy-middleware";
-import { execSync } from "child_process";
-import path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-import fs from "fs";
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+import { createUploadsProxy } from "./uploadsProxy.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
 
 // Track logged errors to prevent spam
 const loggedErrors = new Set();
@@ -34,38 +31,9 @@ function logProxyError(errorKey, message, ...args) {
   }
 }
 
-// Load .env.docker if DOCKER=true, otherwise use default dotenv
-if (process.env.DOCKER === "true") {
-  const backendRoot = path.resolve(__dirname, "..", "..", "..", "..");
-  const envDockerPath = path.resolve(backendRoot, ".env.docker");
-  if (fs.existsSync(envDockerPath)) {
-    dotenv.config({ path: envDockerPath });
-    console.log(`✅ API Gateway loaded .env.docker from: ${envDockerPath}`);
-  } else {
-    dotenv.config(); // Fallback to default
-  }
-} else {
-  dotenv.config(); // Default behavior for local development
-}
 
 const app = express();
 const PORT = process.env.API_GATEWAY_PORT || 4000;
-
-// Function to kill port before starting (for auto-reload)
-function killPortBeforeStart(port) {
-  const isWindows = process.platform === "win32";
-  if (!isWindows) return;
-  
-  try {
-    const currentPid = process.pid;
-    const command = `$port = ${port}; $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue; if ($conns) { $pids = $conns | Select-Object -ExpandProperty OwningProcess -Unique; foreach ($procId in $pids) { if ($procId -and $procId -ne ${currentPid}) { try { taskkill /F /T /PID $procId 2>&1 | Out-Null; Start-Sleep -Milliseconds 300 } catch {} } } }`;
-    execSync(`powershell -Command "${command}"`, { stdio: "ignore", timeout: 5000 });
-    // Wait a bit for port to be released
-    execSync(`powershell -Command "Start-Sleep -Milliseconds 500"`, { stdio: "ignore", timeout: 1000 });
-  } catch (e) {
-    // Ignore errors
-  }
-}
 
 // Service URLs
 const SERVICES = {
@@ -92,70 +60,9 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok", service: "api-gateway", timestamp: new Date().toISOString() });
 });
 
-// Test route to verify /uploads matching
-app.use("/uploads", (req, res, next) => {
-  console.log(`[API Gateway] [TEST] /uploads route matched! URL: ${req.url}, Method: ${req.method}`);
-  next();
-});
-
 // File Service - Static files (MUST be before /api routes to avoid conflicts)
-app.use("/uploads", createProxyMiddleware({
-  target: SERVICES.file,
-  changeOrigin: true,
-  pathRewrite: (path, req) => {
-    // IMPORTANT: Express strips /uploads prefix before passing to proxy
-    // So path is "/file-xxx.webm" not "/uploads/file-xxx.webm"
-    // We need to prepend /uploads: "/file-xxx.webm" -> "/uploads/file-xxx.webm"
-    const newPath = `/uploads${path}`;
-    console.log(`[API Gateway] [pathRewrite] ${path} → ${newPath} (original: ${req.originalUrl || req.url})`);
-    return newPath;
-  },
-  timeout: 30000,
-  proxyTimeout: 30000,
-  onProxyReq: (proxyReq, req, res) => {
-    // Forward all headers (except host and connection)
-    Object.keys(req.headers).forEach(key => {
-      const lowerKey = key.toLowerCase();
-      if (lowerKey !== "host" && lowerKey !== "connection") {
-        proxyReq.setHeader(key, req.headers[key]);
-      }
-    });
-    
-    // Set x-forwarded-host and x-forwarded-proto for File Service
-    proxyReq.setHeader("x-forwarded-host", req.get("host") || "localhost:4000");
-    proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
-    
-    // Always log /uploads requests for debugging
-    console.log(`[API Gateway] [DEBUG] GET ${req.url} → ${SERVICES.file}${req.url}`);
-  },
-  onProxyRes: (proxyRes, req, res) => {
-    // Set CORS headers for static files
-    proxyRes.headers["access-control-allow-origin"] = "*";
-    proxyRes.headers["access-control-allow-methods"] = "GET, HEAD, OPTIONS";
-    proxyRes.headers["access-control-allow-headers"] = "*";
-    
-    // Always log response status for /uploads
-    console.log(`[API Gateway] [ProxyRes] ${req.url} → ${proxyRes.statusCode} (target: ${SERVICES.file})`);
-    if (proxyRes.statusCode >= 400) {
-      console.error(`[API Gateway] [ProxyRes] Error: ${req.url} → ${proxyRes.statusCode}`);
-    }
-  },
-  onError: (err, req, res) => {
-    logProxyError(`uploads_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
-    if (!res.headersSent) {
-      if (err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
-        res.status(503).json({ 
-          message: "File Service không khả dụng. Vui lòng kiểm tra service đã chạy chưa.",
-          error: process.env.NODE_ENV === "development" ? err.message : undefined
-        });
-      } else {
-        res.status(502).json({ 
-          message: "Lỗi kết nối đến File Service.",
-          error: process.env.NODE_ENV === "development" ? err.message : undefined
-        });
-      }
-    }
-  }
+app.use("/uploads", createUploadsProxy(SERVICES.file, {
+  onProxyError: message => logProxyError("uploads_proxy", message)
 }));
 
 // User & Auth Service
@@ -237,9 +144,6 @@ app.use("/api/auth", createProxyMiddleware({
     // Log request for debugging
     const targetPath = `/auth${req.url.replace("/api/auth", "")}`;
     console.log(`[API Gateway] ${req.method} ${req.url} → ${SERVICES.user}${targetPath}`);
-    if (req.body) {
-      console.log(`[API Gateway] Body: ${JSON.stringify(req.body).substring(0, 100)}`);
-    }
   },
   onError: (err, req, res) => {
     logProxyError(`auth_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
@@ -469,6 +373,17 @@ app.use("/api/challenges", createProxyMiddleware({
 }));
 
 // Learner Service
+// Local speech inference can outlast ordinary JSON requests. Keep its bounded
+// timeout above the Story client deadline without changing every API route.
+app.use('/api/learners/speaking-practice/story/message', createProxyMiddleware({
+  target: SERVICES.learner, changeOrigin: true,
+  pathRewrite: pathname => `/learners/speaking-practice/story/message${pathname.replace(/^\/(?=\?|$)/, '')}`,
+  timeout: 200000, proxyTimeout: 200000,
+  on: { error: (error, req, res) => {
+    if (!res.headersSent) res.writeHead(504, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ message: 'Xử lý giọng nói quá thời gian hoặc dịch vụ chưa sẵn sàng.', code: 'STORY_UPSTREAM_UNAVAILABLE' }));
+  } }
+}));
 app.use("/api/learners", createProxyMiddleware({
   target: SERVICES.learner,
   changeOrigin: true,
@@ -541,39 +456,7 @@ app.use("/api/learners", createProxyMiddleware({
 }));
 
 // Admin Service
-app.use("/api/admin", createProxyMiddleware({
-  target: SERVICES.admin,
-  changeOrigin: true,
-  pathRewrite: (path, req) => {
-    // Express strips /api/admin, leaving /dashboard/traffic or /users, etc.
-    // We need to add /admin prefix: /dashboard/traffic -> /admin/dashboard/traffic
-    return `/admin${path}`;
-  },
-  timeout: 30000,
-  proxyTimeout: 30000,
-  onProxyReq: (proxyReq, req, res) => {
-    // Forward all headers (except host and connection)
-    Object.keys(req.headers).forEach(key => {
-      const lowerKey = key.toLowerCase();
-      if (lowerKey !== "host" && lowerKey !== "connection") {
-        proxyReq.setHeader(key, req.headers[key]);
-      }
-    });
-    
-    // Set x-forwarded-host and x-forwarded-proto for microservices to build correct URLs
-    proxyReq.setHeader("x-forwarded-host", req.get("host") || "localhost:4000");
-    proxyReq.setHeader("x-forwarded-proto", req.protocol || "http");
-  },
-  onError: (err, req, res) => {
-    logProxyError(`admin_${err.code}`, "Proxy error for /api/admin:", err.message);
-    if (!res.headersSent) {
-      res.status(502).json({ 
-        message: "Không thể kết nối đến Admin Service.",
-        error: process.env.NODE_ENV === "development" ? err.message : undefined
-      });
-    }
-  }
-}));
+app.use('/api/admin',createAdminProxy(SERVICES.admin,{onError:error=>logProxyError('admin_'+error.code,'Admin proxy failed:',error.code)}));
 
 // File Service - File uploads
 // IMPORTANT: Must NOT use express.json() before this - multipart/form-data needs raw body stream
@@ -604,7 +487,7 @@ app.use("/api/uploads", createProxyMiddleware({
     // Only log errors (handled in onError)
   },
   onError: (err, req, res) => {
-    logProxyError(`api_uploads_${err.code}`, `[API Gateway] Proxy error for ${req.url}:`, err.message);
+    logProxyError(`api_uploads_${err.code}`, `[API Gateway] /api/uploads proxy failed (${err.code || err.name})`);
     if (!res.headersSent) {
       if (err.code === "ECONNREFUSED" || err.code === "ETIMEDOUT") {
         res.status(503).json({ 
@@ -626,7 +509,7 @@ app.use("/api/ai", createProxyMiddleware({
   target: SERVICES.ai,
   changeOrigin: true,
   pathRewrite: (path, req) => {
-    // Express strips /api/ai, leaving /assistant/conversation or /call-openrouter, etc.
+    // Express strips /api/ai, leaving /assistant/conversation or /call-groq, etc.
     // We need to add /ai prefix: /assistant/conversation -> /ai/assistant/conversation
     return `/ai${path}`;
   },
@@ -670,18 +553,15 @@ app.use((err, req, res, next) => {
 // 404 handler
 app.use((req, res) => {
   // Log 404s for /uploads to help debug routing issues
-  if (req.url.startsWith("/uploads")) {
-    console.error(`[API Gateway] [404] ${req.method} ${req.url} - Route not matched! Check if /uploads proxy is configured correctly`);
-    console.error(`[API Gateway] [404] Request headers:`, JSON.stringify(req.headers, null, 2));
+  if (req.path.startsWith("/uploads")) {
+    console.error(`[API Gateway] [404] ${req.method} ${req.path} - Route not matched! Check if /uploads proxy is configured correctly`);
   }
-  res.status(404).json({ message: "Route not found", path: req.url });
+  res.status(404).json({ message: "Route not found", path: req.path });
 });
 
-// Kill port before starting (for auto-reload with node --watch)
-killPortBeforeStart(PORT);
-
-// Create server with retry logic
-function startServer() {
+// Importing the actual route graph must not listen or terminate another process.
+export { app };
+export function startServer() {
   const server = app.listen(PORT, () => {
     console.log(`🚀 API Gateway running on port ${PORT}`);
     console.log(`📡 Services:`);
@@ -693,13 +573,8 @@ function startServer() {
 
   server.on("error", (err) => {
     if (err.code === "EADDRINUSE") {
-      console.log(`🔄 Port ${PORT} is in use, killing old process...`);
-      killPortBeforeStart(PORT);
-      // Retry after a short delay
-      setTimeout(() => {
-        console.log(`🔄 Retrying to start on port ${PORT}...`);
-        startServer();
-      }, 1000);
+      console.error(`Port ${PORT} is already in use; existing process was not changed.`);
+      process.exitCode = 1;
     } else {
       console.error(`❌ Error starting API Gateway:`, err);
       process.exit(1);
@@ -709,5 +584,4 @@ function startServer() {
   return server;
 }
 
-startServer();
-
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) startServer();

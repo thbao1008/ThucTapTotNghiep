@@ -1,3 +1,5 @@
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 import React, { useEffect, useState } from "react";
 import api from "../../api.js";
 import Modal from "./Modal.jsx";
@@ -25,42 +27,22 @@ export default function AssignedLearnersModal({ mentorId, onClose }) {
     fetchLearners();
   }, [mentorId]);
 
-  const handleRemoveLearner = async (learnerId) => {
-    if (!window.confirm("Bạn có chắc chắn muốn xóa học viên này khỏi giảng viên? Học viên sẽ bị ban tạm thời và không được tự động gán lại.")) {
-      return;
-    }
-
-    try {
-      await api.post("/admin/users/learners/remove-from-mentor", {
-        learnerId,
-        mentorId: realMentorId,
-      });
-      alert("Đã xóa học viên khỏi giảng viên thành công");
-      // Refresh danh sách
-      const learnersRes = await api.get(`/admin/mentors/${realMentorId}/learners`);
-      setLearners(learnersRes.data.learners || []);
-    } catch (err) {
-      console.error("❌ Lỗi xóa learner:", err);
-      alert("Có lỗi xảy ra khi xóa học viên");
-    }
-  };
-
   return (
-    <Modal title="Danh sách học viên được bổ nhiệm" onClose={onClose}>
+    <Modal title={englishText("Danh sách học viên được bổ nhiệm")} onClose={onClose}>
       <table className="table">
         <thead>
           <tr>
-            <th>STT</th>
-            <th>Tên học viên</th>
-            <th>Email</th>
-            <th>SĐT</th>
-            <th>Thao tác</th>
+            <th><UiText text={"STT"} /></th>
+            <th><UiText text={"Tên học viên"} /></th>
+            <th><UiText text={"Email"} /></th>
+            <th><UiText text={"SĐT"} /></th>
+            <th><UiText text={"Thao tác"} /></th>
           </tr>
         </thead>
         <tbody>
           {learners.map((l, idx) => (
             <tr key={l.learner_id || l.id}>
-              <td>{idx + 1}</td>
+              <td><UiText>{idx + 1}</UiText></td>
               <td>{l.learner_name || l.name}</td>
               <td>{l.email}</td>
               <td>{l.phone}</td>
@@ -68,22 +50,8 @@ export default function AssignedLearnersModal({ mentorId, onClose }) {
                 <button 
                   onClick={() => setSelectedLearnerId(l.user_id)}
                   style={{ marginRight: "8px" }}
-                >
-                  Xem
-                </button>
-                <button 
-                  onClick={() => handleRemoveLearner(l.learner_id || l.id)}
-                  style={{ 
-                    backgroundColor: "#dc3545", 
-                    color: "white",
-                    border: "none",
-                    padding: "4px 12px",
-                    borderRadius: "4px",
-                    cursor: "pointer"
-                  }}
-                >
-                  Xóa
-                </button>
+                >{" "}<UiText text={"Xem / Đổi Mentor"} />{" "}</button>
+
               </td>
             </tr>
           ))}

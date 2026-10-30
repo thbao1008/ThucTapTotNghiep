@@ -6,7 +6,6 @@ import "./config/db.js";
 import { authGuard } from "./middleware/authGuard.js";
 import { packageGuard } from "./middleware/packageGuard.js";
 import adminRoutes from "./routes/adminRoutes.js";
-import { seedAdmins } from "./seed/seedAdminsFromFile.js";
 
 const app = express();
 const PORT = process.env.ADMIN_SERVICE_PORT || 4008;
@@ -41,19 +40,8 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Seed admins on startup (non-blocking - don't exit on error)
-// Admin service should start even if seed fails (table might not exist yet)
-seedAdmins()
-  .then(() => {
-    console.log("✅ Admin seed completed");
-  })
-  .catch((err) => {
-    console.error("⚠️  Seed admin error (service will continue):", err.message);
-    // Don't exit - service should start anyway
-    // User can run seed manually later: docker-compose run --rm seed
-  });
-
-// Start server regardless of seed result
+// Starting the server must not create accounts or replace profile/password data.
+// Administrator provisioning remains a separate, explicitly invoked operation.
 app.listen(PORT, () => {
   console.log(`👑 Admin Service running on port ${PORT}`);
   console.log(`✅ Health check: http://localhost:${PORT}/health`);

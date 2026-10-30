@@ -16,7 +16,6 @@ import {
   updateUser,
   deleteUser,
   toggleUserStatus,
-  removeLearnerFromMentor,
   changeLearnerMentor,
   getAvailableMentors,
   uploadAvatar,
@@ -168,7 +167,6 @@ router.get("/users/:id/ban-history", async (req, res) => {
 });
 
 // Mentor-Learner management
-router.post("/users/learners/remove-from-mentor", removeLearnerFromMentor);
 router.post("/users/learners/change-mentor", changeLearnerMentor);
 router.get("/users/learners/:learnerId/available-mentors", getAvailableMentors);
 
@@ -240,11 +238,13 @@ router.get("/support", async (req, res) => {
 router.patch("/support/:id", async (req, res) => {
   const { id } = req.params;
   const { status } = req.body;
+  if (!['pending','resolved'].includes(status)) return res.status(400).json({error:'Trạng thái không hợp lệ'});
   try {
     const result = await pool.query(
       "UPDATE support_requests SET status=$1 WHERE id=$2 RETURNING *",
       [status, id]
     );
+    if (!result.rowCount) return res.status(404).json({error:'Không tìm thấy yêu cầu'});
     res.json({ success: true, request: result.rows[0] });
   } catch (err) {
     console.error("❌ Lỗi update support request: - adminRoutes.js", err);

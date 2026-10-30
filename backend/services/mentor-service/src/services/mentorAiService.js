@@ -1,9 +1,10 @@
 // Mentor AI Service - Challenge Creator AI
-// Note: callOpenRouter and safeParseJSON should be imported from AI Service via HTTP call
+// Note: callGroq and safeParseJSON should be imported from AI Service via HTTP call
 // For now, we'll create a local wrapper that calls AI Service
 
 import { fileURLToPath } from "url";
 import path from "path";
+import { getAIServiceAuthHeaders } from "../utils/aiServiceAuth.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,41 +12,58 @@ const __dirname = path.dirname(__filename);
 /**
  * Tìm project root (đi lên từ mentor-service/src/services đến backend root)
  */
-function getProjectRoot() {
-  // __dirname = backend/services/mentor-service/src/services
-  // Đi lên 4 cấp: services -> src -> mentor-service -> services -> backend
-  return path.resolve(__dirname, "..", "..", "..", "..");
-}
+
 
 // Helper to call AI Service via API Gateway
-// authToken: optional Authorization token to forward to AI Service
-async function callOpenRouter(messages, opts = {}, authToken = null) {
-  // Gọi qua API Gateway thay vì trực tiếp đến AI Service
+async function callGroq(messages, opts = {}) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60_000);
   try {
     const API_GATEWAY_URL = process.env.API_GATEWAY_URL || "http://localhost:4000";
     const fetchFn = typeof globalThis.fetch === "function" 
       ? globalThis.fetch 
       : (await import("node-fetch")).default;
     
-    const headers = { "Content-Type": "application/json" };
-    if (authToken) {
-      headers["Authorization"] = `Bearer ${authToken}`;
-    }
+    const headers = { "Content-Type": "application/json", ...getAIServiceAuthHeaders() };
     
-    const response = await fetchFn(`${API_GATEWAY_URL}/api/ai/call-openrouter`, {
+    const response = await fetchFn(`${API_GATEWAY_URL}/api/ai/call-groq`, {
       method: "POST",
       headers,
-      body: JSON.stringify({ messages, options: opts })
+      body: JSON.stringify({ messages, options: opts }),
+      signal: controller.signal
     });
     
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      throw new Error(`AI Service error: ${response.status} - ${errorText}`);
+    let data;
+    try {
+      data = await response.json();
+    } catch {
+      throw Object.assign(new Error("AI Service returned an invalid response"), {
+        status: 502,
+        code: "AI_SERVICE_RESPONSE_INVALID"
+      });
     }
-    return await response.json();
+    if (!response.ok) {
+      throw Object.assign(new Error(data?.error || data?.message || "AI Service request failed"), {
+        status: response.status,
+        code: data?.code || "AI_SERVICE_ERROR"
+      });
+    }
+    return data;
   } catch (err) {
-    console.error("Failed to call OpenRouter via API Gateway:", err);
-    throw err;
+    if (controller.signal.aborted) {
+      throw Object.assign(new Error("AI Service request timed out"), {
+        status: 504,
+        code: "AI_SERVICE_TIMEOUT"
+      });
+    }
+    if (err.status) throw err;
+    throw Object.assign(new Error("AI Service is unavailable"), {
+      status: 503,
+      code: "AI_SERVICE_UNAVAILABLE",
+      cause: err
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
@@ -58,117 +76,14 @@ function safeParseJSON(text) {
 }
 
 /**
- * learnFromMentorFeedback - Gửi feedback transcript của mentor cho AI để học cách đánh giá
- * @param {string} feedbackTranscript - Transcript của audio feedback từ mentor
- * @param {object} scores - { final_score, pronunciation_score, fluency_score }
- * @param {object} submissionContext - { learner_transcript, challenge_title, challenge_description }
- */
-export async function learnFromMentorFeedback(feedbackTranscript, scores, submissionContext = {}) {
-  if (!feedbackTranscript || typeof feedbackTranscript !== "string") {
-    console.warn("[mentorAiService] learnFromMentorFeedback: invalid transcript");
-    return null;
-  }
-
-  const prompt = `Bạn là hệ thống AI đang học cách đánh giá từ mentor.
-
-Mentor đã đánh giá một bài nộp của học viên với các điểm số:
-- Điểm tổng: ${scores.final_score ?? "N/A"}/10
-- Phát âm: ${scores.pronunciation_score ?? "N/A"}/10
-- Trôi chảy: ${scores.fluency_score ?? "N/A"}/10
-
-Transcript của nhận xét audio từ mentor:
-"${feedbackTranscript}"
-
-${submissionContext.learner_transcript ? `Transcript của học viên được đánh giá:
-"${submissionContext.learner_transcript}"` : ""}
-
-${submissionContext.challenge_title ? `Challenge: ${submissionContext.challenge_title}` : ""}
-
-Hãy phân tích và trích xuất:
-1. Các tiêu chí đánh giá mà mentor sử dụng
-2. Các điểm mạnh/yếu mà mentor nhận xét
-3. Các gợi ý cải thiện mà mentor đưa ra
-4. Cách mentor cân nhắc giữa pronunciation và fluency
-
-Trả về JSON:
-{
-  "evaluation_criteria": ["tiêu chí 1", "tiêu chí 2", ...],
-  "strengths_mentioned": ["điểm mạnh 1", ...],
-  "weaknesses_mentioned": ["điểm yếu 1", ...],
-  "improvement_suggestions": ["gợi ý 1", ...],
-  "scoring_rationale": "giải thích cách mentor chấm điểm",
-  "key_phrases": ["cụm từ quan trọng mentor dùng", ...]
-}
-
-Chỉ trả về JSON hợp lệ.`;
-
-  try {
-    const resp = await callOpenRouter(
-      [
-        { role: "system", content: "Bạn là hệ thống phân tích và học hỏi từ đánh giá của mentor. Trả về JSON hợp lệ." },
-        { role: "user", content: prompt }
-      ],
-      { max_tokens: 500, temperature: 0.3 }
-    );
-
-    const result = safeParseJSON(resp?.choices?.[0]?.message?.content);
-    if (result && typeof result === "object") {
-      console.log("[mentorAiService] ✅ Learned from mentor feedback");
-      return result;
-    }
-    return null;
-  } catch (err) {
-    console.error("[mentorAiService] learnFromMentorFeedback error:", err);
-    return null;
-  }
-}
-
-/**
- * getChallengeCreatorSystemPrompt - Lấy system prompt từ Python trainer
+ * getChallengeCreatorSystemPrompt - Prompt tạo Challenge qua Groq
  */
 async function getChallengeCreatorSystemPrompt() {
-  try {
-    const { spawn } = await import("child_process");
-    const backendDir = getProjectRoot();
-    const trainerPath = path.resolve(backendDir, "ai_models", "challengeCreatorTrainer.py");
-    
-    return new Promise((resolve, reject) => {
-      const python = spawn("python", [trainerPath]);
-      let output = "";
-      let errorOutput = "";
-      
-      python.stdout.on("data", (data) => {
-        output += data.toString();
-      });
-      
-      python.stderr.on("data", (data) => {
-        errorOutput += data.toString();
-      });
-      
-      python.on("close", (code) => {
-        if (code === 0) {
-          // Extract system prompt from output
-          const systemPromptMatch = output.match(/=== SYSTEM PROMPT ===\n([\s\S]+?)\n=== USER PROMPT ===/);
-          if (systemPromptMatch) {
-            resolve(systemPromptMatch[1].trim());
-          } else {
-            // Fallback: use hardcoded prompt
-            resolve(getDefaultSystemPrompt());
-          }
-        } else {
-          console.warn("[mentorAiService] Python trainer error, using default prompt:", errorOutput);
-          resolve(getDefaultSystemPrompt());
-        }
-      });
-    });
-  } catch (err) {
-    console.warn("[mentorAiService] Error loading Python trainer, using default:", err.message);
-    return getDefaultSystemPrompt();
-  }
+  return getDefaultSystemPrompt();
 }
 
 /**
- * getDefaultSystemPrompt - System prompt mặc định nếu không load được từ Python
+ * getDefaultSystemPrompt - Prompt tạo Challenge
  */
 function getDefaultSystemPrompt() {
   return `You are an expert English learning challenge creator AI. Your role is to understand mentor requests and create high-quality challenges with specific grammar rules.
@@ -212,9 +127,8 @@ IMPORTANT:
 
 /**
  * chatWithAI - Enhanced AI chat for challenge creation with grammar rules understanding
- * authToken: optional Authorization token to forward to AI Service
  */
-export async function chatWithAI(message, context = {}, authToken = null) {
+export async function chatWithAI(message, context = {}) {
   try {
     // Get system prompt from trainer (with fallback)
     const systemPrompt = await getChallengeCreatorSystemPrompt();
@@ -258,13 +172,12 @@ IMPORTANT:
     let resp;
     let maxTokens = 1000;
     try {
-      resp = await callOpenRouter(
+      resp = await callGroq(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: maxTokens, temperature: 0.8 },
-        authToken
+        { task_type: "mentor_challenge_generation", max_tokens: maxTokens, temperature: 0.8 }
       );
     } catch (err) {
       // Xử lý lỗi payment required (402) - tự động giảm max_tokens và retry
@@ -276,13 +189,12 @@ IMPORTANT:
         maxTokens = reducedTokens;
         
         try {
-          resp = await callOpenRouter(
+          resp = await callGroq(
             [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            { max_tokens: reducedTokens, temperature: 0.8 },
-            authToken
+            { task_type: "mentor_challenge_generation", max_tokens: reducedTokens, temperature: 0.8 }
           );
           console.log(`✅ [mentorAiService] Retry successful with max_tokens: ${reducedTokens}`);
         } catch (retryErr) {
@@ -337,7 +249,7 @@ IMPORTANT:
 /**
  * editChallengeAI - Enhanced AI helper to edit challenge content with grammar focus
  */
-export async function editChallengeAI(content, mentorFeedback = "", authToken = null) {
+export async function editChallengeAI(content, mentorFeedback = "") {
   try {
     const systemPrompt = await getChallengeCreatorSystemPrompt();
     
@@ -365,13 +277,12 @@ Return the improved challenge in HTML format, ensuring:
     let resp;
     let maxTokens = 500;
     try {
-      resp = await callOpenRouter(
+      resp = await callGroq(
         [
           { role: "system", content: systemPrompt },
           { role: "user", content: userPrompt }
         ],
-        { max_tokens: maxTokens, temperature: 0.7 },
-        authToken
+        { task_type: "mentor_challenge_edit", max_tokens: maxTokens, temperature: 0.7 }
       );
     } catch (err) {
       // Xử lý lỗi payment required (402) - tự động giảm max_tokens và retry
@@ -383,13 +294,12 @@ Return the improved challenge in HTML format, ensuring:
         maxTokens = reducedTokens;
         
         try {
-          resp = await callOpenRouter(
+          resp = await callGroq(
             [
               { role: "system", content: systemPrompt },
               { role: "user", content: userPrompt }
             ],
-            { max_tokens: reducedTokens, temperature: 0.7 },
-            authToken
+            { task_type: "mentor_challenge_edit", max_tokens: reducedTokens, temperature: 0.7 }
           );
           console.log(`✅ [mentorAiService] editChallengeAI retry successful with max_tokens: ${reducedTokens}`);
         } catch (retryErr) {
@@ -407,4 +317,3 @@ Return the improved challenge in HTML format, ensuring:
     return content;
   }
 }
-

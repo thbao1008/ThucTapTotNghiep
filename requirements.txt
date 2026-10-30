@@ -1,0 +1,11 @@
+# AESP Python speech runtime; Python 3.12.x.
+# Install the matching torch/torchaudio CPU wheels first (SETUP_AESP.cmd does this).
+# CUDA is optional and has a separate documented install command.
+whisperx==3.8.6
+faster-whisper==1.2.1
+ctranslate2==4.8.3
+torch==2.8.0
+torchaudio==2.8.0
+torchvision==0.23.0
+langdetect==1.0.9
+numpy>=2.1,<3

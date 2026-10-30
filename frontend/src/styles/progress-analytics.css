@@ -48,6 +48,12 @@
   color: white;
 }
 
+.overall-section .progress-activity-note {
+  color: #fff;
+  margin-top: 20px;
+  line-height: 1.6;
+}
+
 .overall-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

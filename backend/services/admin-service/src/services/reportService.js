@@ -45,14 +45,7 @@ export async function getAllLearnersWithProgress(mentorId = null, searchQuery = 
       m.id AS mentor_id,
       mu.id AS mentor_user_id,
       mu.name AS mentor_name,
-      COALESCE(
-        (SELECT AVG(average_score) 
-         FROM practice_history 
-         WHERE learner_id = l.id 
-           AND practice_type = 'speaking_practice' 
-           AND average_score IS NOT NULL),
-        0
-      ) AS average_score,
+      NULL::numeric AS average_score,
       (SELECT COUNT(*) 
        FROM practice_history 
        WHERE learner_id = l.id 
@@ -139,60 +132,20 @@ export async function searchLearnerProgress(query) {
 }
 
 // Cập nhật trạng thái report + xử lý reply/note
-export async function updateReportStatus(id, status, replyContent = null, actorRole = "admin") {
-  try {
-    const current = await pool.query(`SELECT * FROM reports WHERE id = $1`, [id]);
-    if (!current.rows.length) return null;
-    const report = current.rows[0];
-
-    const nowFormatted = await pool.query(`SELECT TO_CHAR(NOW(), 'DD/MM/YYYY HH24:MI:SS') AS ts`);
-    const timestamp = nowFormatted.rows[0].ts;
-
-    if (actorRole === "admin") {
-      if (replyContent) {
-        await pool.query(
-          `UPDATE reports
-           SET status = $1,
-               reply = $2,
-               reply_by = 'admin',
-               reply_at = NOW(),
-               updated_at = NOW()
-           WHERE id = $3`,
-          [status, `[Admin trả lời - ${timestamp}] ${replyContent}`, id]
-        );
-      } else {
-        await pool.query(
-          `UPDATE reports
-           SET status = $1,
-               updated_at = NOW()
-           WHERE id = $2`,
-          [status, id]
-        );
-      }
-    } else if (actorRole === "mentor") {
-      await pool.query(
-        `UPDATE learners
-         SET note = COALESCE(note, '') || '\n[Mentor nhập - ${timestamp}] ' || $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [replyContent || "", report.target_id]
-      );
-
-      await pool.query(
-        `UPDATE reports
-         SET status = $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [status, id]
-      );
-    }
-
-    const updated = await pool.query(`SELECT * FROM reports WHERE id = $1`, [id]);
-    return updated.rows[0];
-  } catch (err) {
-    console.error("Error updateReportStatus service: - reportService.js:114", err);
-    throw err;
+export async function updateReportStatus(id,status,replyContent=null){
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');
+  const {rows:[current]}=await client.query('SELECT * FROM reports WHERE id=$1 FOR UPDATE',[id]);
+  if(!current){await client.query('COMMIT');return null;}
+  const reply=typeof replyContent==='string'?replyContent.trim():status==='resolved'?'Phản hồi được chấp nhận đang tiến hành xử lý':status==='dismissed'?'Phản hồi bị từ chối vì chưa đủ căn cứ.':null;
+  await client.query(`UPDATE reports SET status=$2,reply=COALESCE($3,reply),reply_by=CASE WHEN $3::text IS NULL THEN reply_by ELSE 'admin' END,reply_at=CASE WHEN $3::text IS NULL THEN reply_at ELSE NOW() END,updated_at=NOW() WHERE id=$1`,[id,status,reply]);
+  if(current.status!==status && ['resolved','dismissed'].includes(status)){
+   await client.query(`UPDATE learners SET note=COALESCE(note,'')||E'\n[Admin report] '||$2,updated_at=NOW() WHERE user_id=$1`,[current.target_id,status]);
   }
+  const {rows:[updated]}=await client.query(`SELECT r.*,r.id AS report_id,reporter.name AS reporter_name,reporter.role AS reporter_role,target.name AS target_name,target.role AS target_role FROM reports r LEFT JOIN users reporter ON reporter.id=r.reporter_id LEFT JOIN users target ON target.id=r.target_id WHERE r.id=$1`,[id]);
+  await client.query('COMMIT');return updated;
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }
 
 /**

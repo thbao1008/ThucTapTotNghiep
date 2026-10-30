@@ -48,8 +48,6 @@ export async function login(identifier, password) {
       throw new Error(`Lỗi server: ${text.substring(0, 100)}`);
     }
     
-    console.log("🔎 API /login response:", data);
-
     if (!res.ok) {
       // Xử lý lỗi banned user
       if (res.status === 403 && data?.banned) {

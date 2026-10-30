@@ -1,4 +1,7 @@
-﻿import React, { useEffect, useState } from "react";
+import { UiOption } from '../../i18n/UiLanguage.jsx';
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
+﻿import React, { useEffect, useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../../api.js";
 import UserForPage from "./UserForPage.jsx";
@@ -25,6 +28,8 @@ export default function UsersList() {
   const [selectedUser, setSelectedUser] = useState(null);
 
   const [showCreate, setShowCreate] = useState(false);
+  const [createError,setCreateError]=useState(''),[creating,setCreating]=useState(false);
+  const createPendingRef=useRef(false);
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -149,7 +154,7 @@ export default function UsersList() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / perPage));
 
   const deleteUser = async (id) => {
-    if (!window.confirm("Bạn có chắc muốn xóa user này?")) return;
+    if (!window.confirm(englishText("Bạn có chắc muốn xóa user này?"))) return;
     try {
       const res = await api.delete(`/admin/users/${id}`);
       if (res.data?.success || res.status === 204) {
@@ -182,14 +187,15 @@ export default function UsersList() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
+    if(createPendingRef.current)return;setCreateError('');
     const emailOk = validateEmail(email);
     const phoneDigits = sanitizePhone(phone);
     const phoneOk = phone === "" || validateVNPhone(phoneDigits);
-    if (!name.trim()) { setEmailError(""); setPhoneError(""); alert("Tên không được để trống"); return; }
-    if (password.length < 6) { alert("Mật khẩu phải có ít nhất 6 ký tự"); return; }
+    if (!name.trim()) { setEmailError(""); setPhoneError(""); alert(englishText("Tên không được để trống")); return; }
+    if (password.length < 8) { setCreateError('Mật khẩu cần ít nhất 8 ký tự'); return; }
     if (!emailOk) { setEmailError("Email không đúng định dạng"); return; }
     if (!phoneOk) { setPhoneError("SĐT phải 10 số, bắt đầu bằng 0"); return; }
-    if (roleFilter === "LEARNER" && !packageId) { alert("Vui lòng chọn gói học"); return; }
+    if (roleFilter === "LEARNER" && !packageId) { alert(englishText("Vui lòng chọn gói học")); return; }
 
     try {
       const payload = {
@@ -201,13 +207,16 @@ export default function UsersList() {
         role: roleFilter,
         packageId: roleFilter === "LEARNER" ? (packageId || null) : null,
       };
+      createPendingRef.current=true;setCreating(true);
       const res = await api.post("/admin/users", payload);
       const created = res.data.user || res.data;
       setUsers((prev) => [...prev, created]);
       setShowCreate(false);
       resetForm();
     } catch (err) {
-      console.error("❌ Lỗi tạo user:", err);
+      setCreateError(err.response?.data?.message||'Chưa xác nhận được kết quả. Hãy tải lại danh sách trước khi tạo lại.');
+    } finally {
+      createPendingRef.current=false;setCreating(false);
     }
   };
 
@@ -215,15 +224,15 @@ export default function UsersList() {
     <>
       <div className="panel users-list">
         <div className="users-list-header">
-          <h2>Danh sách Người dùng</h2>
+          <h2><UiText text={"Danh sách Người dùng"} /></h2>
           <select
             className="input filter-select header-filter"
             value={roleFilter}
             onChange={(e) => { setRoleFilter(e.target.value); setPage(1); }}
           >
-            <option value="ADMIN">Admin</option>
-            <option value="MENTOR">Mentor</option>
-            <option value="LEARNER">Learner</option>
+            <UiOption value="ADMIN">{"Admin"}</UiOption>
+            <UiOption value="MENTOR">{"Mentor"}</UiOption>
+            <UiOption value="LEARNER">{"Learner"}</UiOption>
           </select>
         </div>
 
@@ -232,7 +241,7 @@ export default function UsersList() {
           <input
             type="text"
             className="input search-input"
-            placeholder="Tìm theo tên, email hoặc số điện thoại..."
+            placeholder={englishText("Tìm theo tên, email hoặc số điện thoại...")}
             value={search}
             onChange={(e) => { setSearch(e.target.value); setPage(1); }}
           />
@@ -243,8 +252,7 @@ export default function UsersList() {
               className="btn btn-primary"
               onClick={() => setShowCreate(true)}
             >
-              <FiPlus /> Thêm Mentor
-            </button>
+              <FiPlus />{" "}<UiText text={"Thêm Mentor"} />{" "}</button>
           )}
 
           {roleFilter === "LEARNER" && (
@@ -257,8 +265,7 @@ export default function UsersList() {
                 setShowCreate(true);
               }}
             >
-              <FiPlus /> Thêm Learner
-            </button>
+              <FiPlus />{" "}<UiText text={"Thêm Learner"} />{" "}</button>
           )}
         </div>
 
@@ -266,18 +273,18 @@ export default function UsersList() {
         <table className="table">
           <thead>
             <tr>
-              <th>STT</th>
-              <th>Tên</th>
-              <th>Số điện thoại</th>
-              <th>Email</th>
-              <th>Vai trò</th>
-              {roleFilter === "LEARNER" && <th>Tình trạng gói</th>}
-              <th>Tình trạng</th>
+              <th><UiText text={"STT"} /></th>
+              <th><UiText text={"Tên"} /></th>
+              <th><UiText text={"Số điện thoại"} /></th>
+              <th><UiText text={"Email"} /></th>
+              <th><UiText text={"Vai trò"} /></th>
+              {roleFilter === "LEARNER" && <th><UiText text={"Tình trạng gói"} /></th>}
+              <th><UiText text={"Tình trạng"} /></th>
             </tr>
           </thead>
           <tbody>
             {paginated.length === 0 ? (
-              <tr><td colSpan="7">Không tìm thấy người dùng nào.</td></tr>
+              <tr><td colSpan="7"><UiText text={"Không tìm thấy người dùng nào."} /></td></tr>
             ) : (
               paginated.map((user, index) => (
                 <tr
@@ -285,24 +292,24 @@ export default function UsersList() {
                   onClick={() => setSelectedUser(user)}
                   style={{ cursor: "pointer" }}
                 >
-                  <td>{start + index + 1}</td>
+                  <td><UiText>{start + index + 1}</UiText></td>
                   <td>{capitalizeWords(user.name)}</td>
                   <td>{user.phone || "-"}</td>
                   <td>{user.email}</td>
-                  <td>{capitalizeWords(user.role)}</td>
+                  <td><UiText>{capitalizeWords(user.role)}</UiText></td>
 
                   {roleFilter === "LEARNER" && (
                     <td>
-                      {user.status === "banned"
-                        ? "Tạm ngưng"
+                      <UiText>{user.status === "banned"
+                        ? "Tài khoản bị khóa (gói vẫn tính giờ)"
                         : user.expiry_date
-                          ? (new Date(user.expiry_date) > new Date() ? "Còn hạn" : "Hết hạn")
-                          : "-"}
+                          ? (user.package_is_active ? "Còn hạn" : new Date(user.expiry_date) <= new Date() ? "Hết hạn" : "Không khả dụng")
+                          : "-"}</UiText>
                     </td>
                   )}
 
                   <td>
-                    {user.status === "active" ? "Active" : "Banned"}
+                    <UiText>{user.status === "active" ? "Active" : "Banned"}</UiText>
                   </td>
                 </tr>
               ))
@@ -319,7 +326,7 @@ export default function UsersList() {
           >
             ←
           </button>
-          <span>Trang {page} / {totalPages}</span>
+          <span><UiText text={"Trang"} />{" "}<UiText>{page}</UiText> / <UiText>{totalPages}</UiText></span>
           <button
             className="page-btn btn btn-secondary btn-small"
             disabled={page === totalPages}
@@ -345,17 +352,18 @@ export default function UsersList() {
 
       {/* Modal tạo user */}
       {showCreate && (
-        <Modal title={`Tạo ${roleFilter}`} onClose={() => setShowCreate(false)}>
+        <Modal title={englishText(roleFilter === 'MENTOR' ? 'Thêm Mentor' : 'Thêm Learner')} onClose={() => setShowCreate(false)}>
           <form className="create-user-form" onSubmit={handleCreate}>
+            {createError&&<p role="alert"><UiText>{createError}</UiText></p>}
             <div className="form-grid">
               {/* Họ và tên */}
               <div className="form-group">
-                <label>Họ và tên</label>
+                <label><UiText text={"Họ và tên"} /></label>
                 <div className="input-with-icon">
                   <FiUser className="icon" />
                   <input
                     type="text"
-                    placeholder="Ví dụ: Nguyễn Văn A"
+                    placeholder={englishText("Ví dụ: Nguyễn Văn A")}
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     required
@@ -365,7 +373,7 @@ export default function UsersList() {
 
               {/* Email */}
               <div className="form-group">
-                <label>Email</label>
+                <label><UiText text={"Email"} /></label>
                 <div className="input-with-icon">
                   <FiMail className="icon" />
                   <input
@@ -382,20 +390,20 @@ export default function UsersList() {
                     required
                   />
                 </div>
-                {emailError && <span className="input-error row"><FiAlertTriangle /> {emailError}</span>}
-                {!emailError && emailCheck.loading && <span className="muted row"><FiLoader /> Đang kiểm tra...</span>}
+                {emailError && <span className="input-error row"><FiAlertTriangle /> <UiText>{emailError}</UiText></span>}
+                {!emailError && emailCheck.loading && <span className="muted row"><FiLoader />{" "}<UiText text={"Đang kiểm tra..."} /></span>}
                 {!emailError && emailCheck.valid === false && <span className="input-error row"><FiAlertTriangle /> {emailCheck.message}</span>}
                 {!emailError && emailCheck.valid === true && <span className="row" style={{ color: "#166534", fontSize: 12 }}><FiCheckCircle /> {emailCheck.message}</span>}
               </div>
 
               {/* Mật khẩu */}
               <div className="form-group">
-                <label>Mật khẩu</label>
+                <label><UiText text={"Mật khẩu"} /></label>
                 <div className="input-with-icon">
                   <FiLock className="icon" />
                   <input
                     type="password"
-                    placeholder="Tối thiểu 6 ký tự"
+                    minLength={8} placeholder={englishText("Tối thiểu 8 ký tự")}
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
@@ -405,12 +413,12 @@ export default function UsersList() {
 
               {/* Số điện thoại */}
               <div className="form-group">
-                <label>Số điện thoại</label>
+                <label><UiText text={"Số điện thoại"} /></label>
                 <div className="input-with-icon">
                   <FiPhone className="icon" />
                   <input
                     type="tel"
-                    placeholder="Ví dụ: 0901234567"
+                    placeholder={englishText("Ví dụ: 0901234567")}
                     value={phone}
                     onChange={(e) => {
                       const raw = e.target.value;
@@ -424,15 +432,15 @@ export default function UsersList() {
                     pattern="0[0-9]{9}"
                   />
                 </div>
-                {phoneError && <span className="input-error row"><FiAlertTriangle /> {phoneError}</span>}
-                {phone && !phoneError && phoneCheck.loading && <span className="muted row"><FiLoader /> Đang kiểm tra...</span>}
+                {phoneError && <span className="input-error row"><FiAlertTriangle /> <UiText>{phoneError}</UiText></span>}
+                {phone && !phoneError && phoneCheck.loading && <span className="muted row"><FiLoader />{" "}<UiText text={"Đang kiểm tra..."} /></span>}
                 {phone && !phoneError && phoneCheck.valid === false && <span className="input-error row"><FiAlertTriangle /> {phoneCheck.message}</span>}
                 {phone && !phoneError && phoneCheck.valid === true && <span className="row" style={{ color: "#166534", fontSize: 12 }}><FiCheckCircle /> {phoneCheck.message}</span>}
               </div>
 
               {/* Ngày sinh */}
               <div className="form-group">
-                <label>Ngày sinh</label>
+                <label><UiText text={"Ngày sinh"} /></label>
                 <div className="input-with-icon">
                   <FiCalendar className="icon" />
                   <input
@@ -446,27 +454,26 @@ export default function UsersList() {
               {/* Gói học cho Learner */}
               {roleFilter === "LEARNER" && (
   <div className="form-group">
-    <label>Gói học</label>
+    <label><UiText text={"Gói học"} /></label>
     <div className="input-with-icon">
       <FiPackage className="icon" />
       {packagesLoading ? (
-        <div className="row muted"><FiLoader /> Đang tải danh sách gói...</div>
+        <div className="row muted"><FiLoader />{" "}<UiText text={"Đang tải danh sách gói..."} /></div>
       ) : packagesError ? (
-        <span className="input-error row"><FiAlertTriangle /> {packagesError}</span>
+        <span className="input-error row"><FiAlertTriangle /> <UiText>{packagesError}</UiText></span>
       ) : packages.length > 0 ? (
         <select
           value={packageId}
           onChange={(e) => setPackageId(e.target.value)}
         >
-          <option value="">-- Chọn gói học --</option>
+          <UiOption value="">{"-- Chọn gói học --"}</UiOption>
           {packages.map(pkg => (
             <option key={pkg.id} value={pkg.id}>
-              {pkg.name} ({pkg.duration_days} ngày)
-            </option>
+              {pkg.name} ({englishText(pkg.duration_days)}{englishText("ngày)")}</option>
           ))}
         </select>
       ) : (
-        <span className="muted">Không có gói học khả dụng</span>
+        <span className="muted"><UiText text={"Không có gói học khả dụng"} /></span>
       )}
     </div>
   </div>
@@ -480,14 +487,11 @@ export default function UsersList() {
                 type="button"
                 className="btn btn-secondary"
                 onClick={() => { setShowCreate(false); resetForm(); }}
-              >
-                Hủy
-              </button>
+              >{" "}<UiText text={"Hủy"} />{" "}</button>
               <button
                 type="submit"
-                className="btn btn-primary"
-              >
-                Tạo {roleFilter === "MENTOR" ? "Mentor" : "Learner"}
+                disabled={creating} className="btn btn-primary"
+              >{" "}<UiText text={"Tạo"} />{" "}<UiText>{roleFilter === "MENTOR" ? "Mentor" : "Learner"}</UiText>
               </button>
             </div>
           </form>

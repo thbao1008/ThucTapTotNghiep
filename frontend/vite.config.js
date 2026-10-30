@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { fileURLToPath } from "url";
 import { dirname, resolve } from "path";
+import { randomUUID } from "node:crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -13,17 +14,22 @@ const errorLogTimestamps = new Map();
 export default defineConfig({
   plugins: [react()],
   root: __dirname, // Đảm bảo root là thư mục frontend
+  // Concurrent local/fixture servers must never overwrite one another's React
+  // prebundles while an existing browser still holds the old renderer modules.
+  cacheDir: resolve(__dirname, 'node_modules/.vite-aesp', `${process.pid}-${randomUUID()}`),
+  resolve: { dedupe: ['react', 'react-dom'] },
+  optimizeDeps: { include: ['react', 'react-dom/client', 'react/jsx-runtime', 'react/jsx-dev-runtime'] },
   server: {
     port: 5173,
     strictPort: false, // Allow fallback to another port if 5173 is busy
     host: true, // Cho phép truy cập từ network
-    open: process.env.DOCKER !== "true", // Tự động mở browser (tắt trong Docker)
+    open: process.env.AESP_OPEN_BROWSER !== "false", // Local npm startup may keep the browser closed.
     proxy: {
       "/api": {
-        target: "http://localhost:4000", // API Gateway
+        target: process.env.API_GATEWAY_URL || "http://localhost:4000", // Local launcher validates this URL.
         changeOrigin: true,
         secure: false,
-        timeout: 60000, // 60 seconds timeout for long operations
+        timeout: 210000, // Allows bounded local ASR + AI; client Story deadline is 180 s.
         ws: true, // Enable websocket proxying
         configure: (proxy, options) => {
           proxy.on("error", (err, req, res) => {
@@ -98,7 +104,7 @@ export default defineConfig({
         }
       },
       "/uploads": {
-        target: "http://localhost:4000", // API Gateway (proxies to File Service)
+        target: process.env.API_GATEWAY_URL || "http://localhost:4000", // API Gateway (proxies to File Service)
         changeOrigin: true,
         secure: false,
         timeout: 30000,

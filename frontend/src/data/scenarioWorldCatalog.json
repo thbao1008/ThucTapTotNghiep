@@ -1,0 +1,16 @@
+{
+  "version": "world-cast-v1",
+  "npcs": [
+    { "id": "emma", "name": "Emma", "portrait": "/scenario-world/npcs/emma.png", "description": "Thân thiện, tò mò và thích khám phá những nơi mới.", "personality": "Friendly, curious; shares information when asked without solving the learner's task.", "roles": ["customer", "student", "traveler"] },
+    { "id": "minh", "name": "Minh", "portrait": "/scenario-world/npcs/minh.png", "description": "Điềm tĩnh, thực tế và sẵn sàng giúp đỡ.", "personality": "Calm, practical and helpful; responds briefly and leaves room for learner initiative.", "roles": ["barista", "customer", "student"] },
+    { "id": "maya", "name": "Maya", "portrait": "/scenario-world/npcs/maya.png", "description": "Tự tin, chu đáo và giải thích rõ ràng.", "personality": "Confident, considerate and clear; can politely clarify a misunderstanding.", "roles": ["manager", "customer", "traveler"] }
+  ],
+  "scenes": [
+    { "id": "neighborhood-cafe", "name": "Quán cà phê góc phố", "background": "/scenario-world/scenes/cafe.png", "description": "Một quán cà phê sáng sủa, có quầy phục vụ và khu bàn ngồi.", "roles": ["customer", "barista", "manager", "student", "traveler"], "topics": ["ordering", "making-friends", "solving-problems"], "levels": ["A1", "A2", "B1", "B2"] }
+  ],
+  "topics": [
+    { "id": "ordering", "name": "Gọi món và hỏi thông tin", "learner_role": "customer", "opening_roles": ["barista", "manager"] },
+    { "id": "making-friends", "name": "Làm quen và trò chuyện", "learner_role": "new acquaintance", "opening_roles": ["customer", "student", "traveler"] },
+    { "id": "solving-problems", "name": "Giải quyết một vấn đề", "learner_role": "visitor asking for help", "opening_roles": ["barista", "manager", "customer", "student", "traveler"] }
+  ]
+}

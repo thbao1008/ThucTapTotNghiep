@@ -42,12 +42,12 @@ export async function getLearnerSchedules(learnerId, options = {}) {
   }
 }
 
-export async function getScheduleById(scheduleId) {
+export async function getScheduleById(scheduleId, queryable = pool, forUpdate = false) {
   try {
-    const result = await pool.query(
+    const result = await queryable.query(
       `SELECT s.*
       FROM schedules s
-      WHERE s.id = $1`,
+      WHERE s.id = $1${forUpdate ? ' FOR UPDATE' : ''}`,
       [scheduleId]
     );
     return result.rows[0] || null;
@@ -57,11 +57,11 @@ export async function getScheduleById(scheduleId) {
   }
 }
 
-export async function createSchedule(scheduleData) {
+export async function createSchedule(scheduleData, queryable = pool) {
   try {
     const { learnerId, mentorId, title, description, startTime, endTime, type, meetingLink, isExam, notes } = scheduleData;
     
-    const result = await pool.query(
+    const result = await queryable.query(
       `INSERT INTO schedules 
        (learner_id, mentor_id, title, description, start_time, end_time, type, meeting_link, is_exam, notes)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
@@ -76,7 +76,7 @@ export async function createSchedule(scheduleData) {
   }
 }
 
-export async function updateSchedule(scheduleId, updates) {
+export async function updateSchedule(scheduleId, updates, mentorId = null, queryable = pool) {
   try {
     const fields = [];
     const values = [];
@@ -120,16 +120,21 @@ export async function updateSchedule(scheduleId, updates) {
     }
     
     if (fields.length === 0) {
-      return await getScheduleById(scheduleId);
+      return await getScheduleById(scheduleId, queryable);
     }
     
     fields.push(`updated_at = CURRENT_TIMESTAMP`);
     values.push(scheduleId);
+    let ownerClause = '';
+    if (mentorId !== null) {
+      values.push(mentorId);
+      ownerClause = ` AND mentor_id = $${paramIndex + 1}`;
+    }
     
-    const result = await pool.query(
+    const result = await queryable.query(
       `UPDATE schedules 
        SET ${fields.join(", ")}
-       WHERE id = $${paramIndex}
+       WHERE id = $${paramIndex}${ownerClause}
        RETURNING *`,
       values
     );

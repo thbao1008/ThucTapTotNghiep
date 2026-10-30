@@ -93,7 +93,7 @@ export async function getNotifications(userId, { page = 1, limit = 20, unreadOnl
     sql += ` AND n.is_read = false`;
   }
 
-  sql += ` ORDER BY n.created_at DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
+  sql += ` ORDER BY n.created_at DESC,n.id DESC LIMIT $${params.length + 1} OFFSET $${params.length + 2}`;
   params.push(parseInt(limit), offset);
 
   const result = await pool.query(sql, params);

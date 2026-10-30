@@ -31,16 +31,17 @@ import LearningCatalog from "../components/learner/LearningCatalog";
 import LearnerDashboard from "../components/learner/LearnerDashboard";
 import SpeakingPractice from "../components/learner/SpeakingPractice";
 import Challenges from "../components/learner/Challenges";
-import ChallengeDetail from "../components/learner/ChallengeDetail";
+import ChallengeDetailPage from "../components/learner/ChallengeDetailPage";
 import LearnerFeedback from "../components/learner/LearnerFeedback";
 
 // Mentor pages
 import MentorDashboard from "../components/mentor/MentorDashboard";
 import AssessmentPanel from "../components/mentor/AssessmentPanel";
-import ChallengeCreator from "../components/mentor/ChallengeCreator";
-import MentorSchedules from "../components/mentor/MentorSchedules";
 import MentorLearners from "../components/mentor/MentorLearners";
 import MentorResources from "../components/mentor/MentorResources";
+import ChallengeCreator from "../components/mentor/ChallengeCreator";
+import OnlineClasses from '../components/common/OnlineClasses';
+import MentorLearnerChat from '../components/common/MentorLearnerChat';
 
 export default function AppRoutes() {
   return (
@@ -89,7 +90,7 @@ export default function AppRoutes() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<LearningCatalog />} />
+        <Route index element={<Navigate to="practice" replace />} />
         <Route path="dashboard" element={<LearnerDashboard />} />
         <Route path="catalog" element={
           <LearningCatalog />
@@ -97,15 +98,18 @@ export default function AppRoutes() {
         <Route path="practice" element={
           <SpeakingPractice />
         } />
+        <Route path="scenario-world" element={<Navigate to="/learn/practice?mode=scenario-world" replace />} />
         <Route path="challenges" element={
           <Challenges />
         } />
         <Route path="challenges/:id" element={
-          <ChallengeDetail />
+          <ChallengeDetailPage />
         } />
         <Route path="feedback" element={
           <LearnerFeedback />
         } />
+        <Route path="schedules" element={<OnlineClasses />} />
+        <Route path="chat" element={<MentorLearnerChat />} />
         <Route path="communicate" element={
           <CommunicateCenter />
         } />
@@ -129,12 +133,11 @@ export default function AppRoutes() {
         <Route path="assessment" element={
           <AssessmentPanel />
         } />
-        <Route path="challenge-creator" element={
-          <ChallengeCreator />
-        } />
+        <Route path="challenge-creator" element={<ChallengeCreator />} />
         <Route path="schedules" element={
-          <MentorSchedules />
+          <OnlineClasses />
         } />
+        <Route path="chat" element={<MentorLearnerChat />} />
         <Route path="learners" element={
           <MentorLearners />
         } />

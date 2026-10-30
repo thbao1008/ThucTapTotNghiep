@@ -1,30 +1,21 @@
+import { listPurchaseLedger } from "../../../shared/purchaseLedger.js";
+import {challengeLevelSql} from '../../../shared/challengeLevels.js';
 // Learner Service - Core business logic for learners
 import pool from "../config/db.js";
+import {
+  createAssessmentContract,
+  normalizeMentorReviewScores
+} from "../utils/assessmentContract.js";
+import { analyzeLearnerTranscript } from "../utils/aiServiceClient.js";
+import { createSubmissionAnalysisService } from "./submissionAnalysisService.js";
+import {
+  persistTranscriptAssessment,
+  serializeLearnerSubmissionListRow,
+  serializeLearnerTranscriptAssessment
+} from "../utils/transcriptAssessmentPersistence.js";
 
-// Helper: getPurchasesByLearner (copied from purchaseModel)
 async function getPurchasesByLearner(learnerId) {
-  const result = await pool.query(
-    `
-    SELECT
-      p.id,
-      p.package_id,
-      p.status,
-      p.created_at,
-      pk.name AS package_name,
-      pk.duration_days,
-      GREATEST(
-        pk.duration_days + COALESCE(p.extra_days, 0)
-        - EXTRACT(DAY FROM (NOW() - p.created_at)),
-        0
-      ) AS remaining_days
-    FROM purchases p
-    JOIN packages pk ON p.package_id = pk.id
-    WHERE p.learner_id = $1
-    ORDER BY p.created_at DESC
-  `,
-    [learnerId]
-  );
-  return result.rows;
+  return (await listPurchaseLedger(pool,{learnerId})).map(row=>({...row,id:row.purchase_id,remaining_days:row.days_left}));
 }
 
 /* -------------------- Learners -------------------- */
@@ -49,7 +40,7 @@ export async function getAllLearners({ page, limit, q } = {}) {
 
 export async function getLearnerById(id) {
   const result = await pool.query(`
-    SELECT l.id AS learner_id, l.mentor_id, u.*
+    SELECT l.id AS learner_id, l.mentor_id, u.id, u.name, u.email, u.phone, u.dob, u.role, u.status, u.created_at, u.avatar_url
     FROM learners l
     JOIN users u ON l.user_id = u.id
     WHERE l.id = $1
@@ -61,30 +52,8 @@ export async function getLearnerPurchases(id) {
   return await getPurchasesByLearner(id);
 }
 
-export async function createLearner({ name, email, phone, dob, packageId }) {
-  const userRes = await pool.query(`
-    INSERT INTO users (name, email, phone, dob, role, status, created_at)
-    VALUES ($1,$2,$3,$4,'learner','active',NOW())
-    RETURNING id
-  `, [name, email, phone, dob]);
-  const userId = userRes.rows[0].id;
-
-  const learnerRes = await pool.query(`
-    INSERT INTO learners (user_id, mentor_id, start_date, created_at, updated_at)
-    VALUES ($1, NULL, NOW(), NOW(), NOW())
-    RETURNING id, mentor_id
-  `, [userId]);
-  const learnerId = learnerRes.rows[0].id;
-  const mentorId = learnerRes.rows[0].mentor_id;
-
-  if (packageId) {
-    await pool.query(`
-      INSERT INTO purchases (learner_id, package_id, status, created_at, extra_days)
-      VALUES ($1, $2, 'active', NOW(), 0)
-    `, [learnerId, packageId]);
-  }
-
-  return { learnerId, userId, mentorId };
+export async function createLearner() {
+  throw Object.assign(new Error("Vui lòng tạo tài khoản học viên tại /api/admin/users."),{status:410});
 }
 
 export async function updateLearner(id, { name, email, phone, dob }) {
@@ -114,249 +83,13 @@ export async function reassignMentorService(id) {
   return updatedRes.rows[0].mentor_id;
 }
 
-// Xóa learner khỏi mentor: ban user, set mentor_id = NULL, KHÔNG xóa lịch sử
-export async function removeLearnerFromMentor(learnerId, mentorId) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
 
-    // Lấy user_id từ learner_id
-    const learnerRes = await client.query(
-      "SELECT user_id FROM learners WHERE id=$1",
-      [learnerId]
-    );
-    if (!learnerRes.rows[0]) {
-      throw new Error("Learner not found");
-    }
-    const userId = learnerRes.rows[0].user_id;
 
-    // Ban user (set status = 'banned')
-    await client.query(
-      "UPDATE users SET status='banned', updated_at=NOW() WHERE id=$1",
-      [userId]
-    );
 
-    // Set mentor_id = NULL (KHÔNG xóa lịch sử)
-    await client.query(
-      "UPDATE learners SET mentor_id=NULL, updated_at=NOW() WHERE id=$1",
-      [learnerId]
-    );
 
-    // Pause purchases
-    await client.query(
-      `UPDATE purchases SET status='paused' 
-       WHERE learner_id=$1 AND status='active'`,
-      [learnerId]
-    );
 
-    await client.query("COMMIT");
-    return { success: true };
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
-}
 
-// Đổi mentor: thêm mentor cũ vào blocklist, tự động gán mentor mới
-export async function changeMentor(learnerId, oldMentorId) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
 
-    // Thêm mentor cũ vào blocklist
-    if (oldMentorId) {
-      // Kiểm tra xem đã có trong blocklist chưa
-      const existingCheck = await client.query(
-        `SELECT id FROM mentor_blocklist WHERE mentor_id = $1 AND learner_id = $2`,
-        [oldMentorId, learnerId]
-      );
-      if (existingCheck.rows.length === 0) {
-        await client.query(
-          `INSERT INTO mentor_blocklist (mentor_id, learner_id, created_at)
-           VALUES ($1, $2, NOW())`,
-          [oldMentorId, learnerId]
-        );
-      }
-    }
-
-    // Tự động chọn mentor mới (ưu tiên ít học viên, rating cao)
-    const mentorRes = await client.query(`
-      SELECT m.id AS mentor_id
-      FROM mentors m
-      JOIN users u ON m.user_id = u.id
-      LEFT JOIN learners l ON l.mentor_id = m.id
-      WHERE NOT EXISTS (
-        SELECT 1 FROM mentor_blocklist mb
-        WHERE mb.learner_id = $1 AND mb.mentor_id = m.id
-      )
-      AND u.status = 'active'
-      GROUP BY m.id
-      HAVING COUNT(l.id) < 15
-      ORDER BY COUNT(l.id) ASC, m.rating DESC NULLS LAST
-      LIMIT 1
-    `, [learnerId]);
-
-    const newMentorId = mentorRes.rows[0]?.mentor_id || null;
-
-    if (newMentorId) {
-      // Gán mentor mới
-      await client.query(
-        "UPDATE learners SET mentor_id=$1, updated_at=NOW() WHERE id=$2",
-        [newMentorId, learnerId]
-      );
-    } else {
-      // Không có mentor nào có sẵn, set mentor_id = NULL
-      await client.query(
-        "UPDATE learners SET mentor_id=NULL, updated_at=NOW() WHERE id=$1",
-        [learnerId]
-      );
-    }
-
-    await client.query("COMMIT");
-    return { success: true, newMentorId };
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
-}
-
-// Lấy danh sách mentors có sẵn để gán (không bị blocklist, ưu tiên ít học viên và rating cao)
-export async function getAvailableMentorsForLearner(learnerId) {
-  const result = await pool.query(`
-    SELECT 
-      m.id AS mentor_id,
-      u.id AS user_id,
-      u.name AS mentor_name,
-      m.rating,
-      COUNT(l.id) AS learner_count
-    FROM mentors m
-    JOIN users u ON m.user_id = u.id
-    LEFT JOIN learners l ON l.mentor_id = m.id
-    WHERE NOT EXISTS (
-      SELECT 1 FROM mentor_blocklist mb
-      WHERE mb.learner_id = $1 AND mb.mentor_id = m.id
-    )
-    AND u.status = 'active'
-    GROUP BY m.id, u.id, u.name, m.rating
-    HAVING COUNT(l.id) < 15
-    ORDER BY COUNT(l.id) ASC, m.rating DESC NULLS LAST
-  `, [learnerId]);
-  return result.rows;
-}
-
-// Xử lý khi mentor bị ban: giải phóng learners, thêm vào blocklist, chia đều cho mentors khác
-export async function handleMentorBanned(mentorId) {
-  const client = await pool.connect();
-  try {
-    await client.query("BEGIN");
-
-    // 1. Lấy tất cả learners của mentor này
-    const learnersRes = await client.query(
-      "SELECT id FROM learners WHERE mentor_id = $1",
-      [mentorId]
-    );
-    const learners = learnersRes.rows;
-
-    if (learners.length === 0) {
-      await client.query("COMMIT");
-      return { success: true, reassignedCount: 0 };
-    }
-
-    // 2. Lấy danh sách mentors có sẵn (không bị ban, không quá 15 learners)
-    const availableMentorsRes = await client.query(`
-      SELECT 
-        m.id AS mentor_id,
-        COUNT(l.id) AS learner_count,
-        m.rating
-      FROM mentors m
-      JOIN users u ON m.user_id = u.id
-      LEFT JOIN learners l ON l.mentor_id = m.id
-      WHERE m.id != $1
-        AND u.status = 'active'
-      GROUP BY m.id, m.rating
-      HAVING COUNT(l.id) < 15
-      ORDER BY COUNT(l.id) ASC, m.rating DESC NULLS LAST
-    `, [mentorId]);
-    const availableMentors = availableMentorsRes.rows;
-
-    if (availableMentors.length === 0) {
-      // Không có mentor nào có sẵn, set mentor_id = NULL cho tất cả learners
-      for (const learner of learners) {
-        // Thêm vào blocklist (kiểm tra trước)
-        const existingCheck = await client.query(
-          `SELECT id FROM mentor_blocklist WHERE mentor_id = $1 AND learner_id = $2`,
-          [mentorId, learner.id]
-        );
-        if (existingCheck.rows.length === 0) {
-          await client.query(
-            `INSERT INTO mentor_blocklist (mentor_id, learner_id, created_at)
-             VALUES ($1, $2, NOW())`,
-            [mentorId, learner.id]
-          );
-        }
-        // Set mentor_id = NULL
-        await client.query(
-          "UPDATE learners SET mentor_id = NULL, updated_at = NOW() WHERE id = $1",
-          [learner.id]
-        );
-        // Cập nhật schedules: set mentor_id = NULL hoặc xóa (tùy logic)
-        await client.query(
-          "UPDATE schedules SET mentor_id = NULL, status = 'cancelled', updated_at = NOW() WHERE learner_id = $1 AND mentor_id = $2",
-          [learner.id, mentorId]
-        );
-      }
-      await client.query("COMMIT");
-      return { success: true, reassignedCount: 0, message: "Không có mentor nào có sẵn" };
-    }
-
-    // 3. Chia đều learners cho các mentors có sẵn (round-robin)
-    let reassignedCount = 0;
-    for (let i = 0; i < learners.length; i++) {
-      const learner = learners[i];
-      const mentorIndex = i % availableMentors.length;
-      const newMentor = availableMentors[mentorIndex];
-
-      // Thêm mentor cũ vào blocklist (kiểm tra trước)
-      const existingCheck = await client.query(
-        `SELECT id FROM mentor_blocklist WHERE mentor_id = $1 AND learner_id = $2`,
-        [mentorId, learner.id]
-      );
-      if (existingCheck.rows.length === 0) {
-        await client.query(
-          `INSERT INTO mentor_blocklist (mentor_id, learner_id, created_at)
-           VALUES ($1, $2, NOW())`,
-          [mentorId, learner.id]
-        );
-      }
-
-      // Gán mentor mới
-      await client.query(
-        "UPDATE learners SET mentor_id = $1, updated_at = NOW() WHERE id = $2",
-        [newMentor.mentor_id, learner.id]
-      );
-
-      // Cập nhật schedules: chuyển mentor_id sang mentor mới
-      await client.query(
-        "UPDATE schedules SET mentor_id = $1, updated_at = NOW() WHERE learner_id = $2 AND mentor_id = $3",
-        [newMentor.mentor_id, learner.id, mentorId]
-      );
-
-      reassignedCount++;
-    }
-
-    await client.query("COMMIT");
-    return { success: true, reassignedCount, totalLearners: learners.length };
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
-}
 
 export async function deleteLearner(id) {
   await pool.query("DELETE FROM learners WHERE id=$1", [id]);
@@ -364,15 +97,8 @@ export async function deleteLearner(id) {
 }
 
 export async function getLatestPurchaseService(id) {
-  const result = await pool.query(
-    `SELECT *
-     FROM learner_package_view
-     WHERE learner_id = $1
-     ORDER BY purchase_id DESC
-     LIMIT 1`,
-    [id]
-  );
-  return result.rows[0] || null;
+  const purchases=await listPurchaseLedger(pool,{learnerId:id});
+  return purchases.find(row=>row.is_active) || purchases[0] || null;
 }
 
 export async function updateLearnerNoteService(learnerId, note) {
@@ -577,7 +303,7 @@ export async function getChallenges({ query, level, mentorId, page = 1, limit = 
   }
   if (level) {
     params.push(level);
-    where.push(`c.level = $${params.length}`);
+    where.push(`${challengeLevelSql('c.level')} = $${params.length}`);
   }
   if (mentorId) {
     params.push(parseInt(mentorId));
@@ -588,23 +314,23 @@ export async function getChallenges({ query, level, mentorId, page = 1, limit = 
   params.push(parseInt(limit), offset);
 
   const sql = `
-    SELECT c.id, c.title, c.description, c.type, c.level, c.created_at,
+    SELECT c.id, c.title, c.description, c.type, ${challengeLevelSql('c.level')} AS level, c.created_at,
            c.mentor_id,
            u.name AS mentor_name
     FROM challenges c
     LEFT JOIN mentors m ON m.id = c.mentor_id
     LEFT JOIN users u ON u.id = m.user_id
     ${whereSql}
-    ORDER BY c.created_at DESC
+    ORDER BY c.created_at DESC, c.id DESC
     LIMIT $${params.length - 1} OFFSET $${params.length}
   `;
   const r = await pool.query(sql, params);
   return r.rows;
 }
 
-export async function getChallengeById(id) {
+export async function getChallengeById(id, db = pool) {
   const sql = `
-    SELECT c.id, c.title, c.description, c.level, c.type, c.created_at,
+    SELECT c.id, c.title, c.description, ${challengeLevelSql('c.level')} AS level, c.type, c.created_at,
            c.mentor_id,
            u.name AS mentor_name
     FROM challenges c
@@ -612,7 +338,7 @@ export async function getChallengeById(id) {
     LEFT JOIN users u ON u.id = m.user_id
     WHERE c.id = $1
   `;
-  const r = await pool.query(sql, [id]);
+  const r = await db.query(sql, [id]);
   return r.rows[0] || null;
 }
 
@@ -625,7 +351,7 @@ export async function getLearnerChallenges(
   const params = [learnerId, parseInt(limit), offset];
 
   let sql = `
-    SELECT c.id, c.title, c.description, c.level, c.type, c.created_at,
+    SELECT c.id, c.title, c.description, ${challengeLevelSql('c.level')} AS level, c.type, c.created_at,
            c.mentor_id,
            lc.id AS learner_challenge_id, lc.status, lc.attempts, lc.score,
            lc.is_bookmarked, lc.last_attempt_at
@@ -647,8 +373,8 @@ export async function getLearnerChallenges(
 
 /* -------------------- Submissions & learner_challenges -------------------- */
 
-export async function getNextAttemptNumber(learnerId, challengeId) {
-  const r = await pool.query(
+export async function getNextAttemptNumber(learnerId, challengeId, db = pool) {
+  const r = await db.query(
     `SELECT COALESCE(MAX(attempt_number),0) + 1 AS next 
      FROM submissions 
      WHERE learner_id=$1 AND challenge_id=$2`,
@@ -664,8 +390,8 @@ export async function createSubmission({
   attemptNumber = 1,
   audioUrl,
   transcript = null
-}) {
-  const r = await pool.query(
+}, db = pool) {
+  const r = await db.query(
     `INSERT INTO submissions 
        (learner_id, challenge_id, assignment_id, attempt_number, audio_url, transcript, status, submitted_at, created_at)
      VALUES ($1,$2,$3,$4,$5,$6,'pending',NOW(),NOW()) 
@@ -674,30 +400,15 @@ export async function createSubmission({
   );
   
   const submission = r.rows[0];
-  
-  // Lưu để Challenge Creator AI học (async, không block)
-  // Note: This will be handled by AI Service via HTTP call or event
-  try {
-    // Call AI Service to learn from submission (via API Gateway, async, non-blocking)
-    fetch(`http://localhost:${process.env.API_GATEWAY_PORT || 4000}/api/ai/challenge/learn-submission`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        submission_id: submission.id,
-        challenge_id: challengeId,
-        learner_id: learnerId
-      })
-    }).catch(err => console.warn("⚠️ Failed to notify AI Service about submission:", err));
-  } catch (err) {
-    // Ignore errors, không block response
-  }
-  
   return submission;
 }
 
-export async function getSubmissionById(id) {
-  const r = await pool.query(
+
+
+export async function getSubmissionById(id, db = pool) {
+  const r = await db.query(
     `SELECT s.*,
+            c.title AS challenge_title,
             ar.overall_score, ar.pronunciation_score, ar.fluency_score, ar.grammar_issues, ar.pronunciation_issues, ar.suggestions, ar.raw_ai_response, ar.word_analysis,
             ar.topic, ar.topic_confidence, ar.topic_alignment,
             ar.created_at AS ai_report_at,
@@ -713,6 +424,7 @@ export async function getSubmissionById(id) {
             f.created_at AS feedback_created_at,
             f.updated_at AS feedback_updated_at
      FROM submissions s
+     LEFT JOIN challenges c ON c.id = s.challenge_id
      LEFT JOIN ai_reports ar ON ar.submission_id = s.id
      LEFT JOIN learners l ON s.learner_id = l.id
      LEFT JOIN learner_challenges lc ON lc.learner_id = s.learner_id AND lc.challenge_id = s.challenge_id
@@ -724,16 +436,27 @@ export async function getSubmissionById(id) {
 
   const row = r.rows[0];
 
-  return {
-    ...row,
-    // normalize ai raw response
-    raw_ai_response: (() => {
-      try {
-        return typeof row.raw_ai_response === "string" ? JSON.parse(row.raw_ai_response) : row.raw_ai_response || null;
-      } catch {
-        return null;
-      }
-    })(),
+  let rawAiResponse = row.raw_ai_response || {};
+    if (typeof rawAiResponse === "string") {
+  try {
+    rawAiResponse = JSON.parse(rawAiResponse);
+  } catch {
+    rawAiResponse = {};
+  }
+    }
+    if (!rawAiResponse || typeof rawAiResponse !== "object" || Array.isArray(rawAiResponse)) {
+  rawAiResponse = {};
+    }
+    const serializedAssessment = serializeLearnerTranscriptAssessment(
+      row,
+      rawAiResponse,
+      "ai_assessment_contract"
+    );
+
+    return {
+    ...serializedAssessment,
+    pronunciation_score: null,
+    fluency_score: null,
     // Mentor review từ feedbacks (theo submission_id)
     mentor_review: row.feedback_id ? {
       id: row.feedback_id,
@@ -742,6 +465,7 @@ export async function getSubmissionById(id) {
       fluency_score: row.feedback_fluency_score,
       feedback: row.feedback_content,
       audio_url: row.feedback_audio_url,
+      assessment_contract: null,
       created_at: row.feedback_created_at,
       updated_at: row.feedback_updated_at
     } : null,
@@ -753,84 +477,32 @@ export async function getSubmissionById(id) {
   };
 }
 
-export async function updateSubmissionTranscript(id, transcript) {
-  const r = await pool.query(
+export async function updateSubmissionTranscript(id, transcript, db = pool) {
+  const r = await db.query(
     "UPDATE submissions SET transcript=$1, updated_at=NOW() WHERE id=$2 RETURNING *",
     [transcript, id]
   );
   return r.rows[0] || null;
 }
 
-export async function updateSubmissionStatus(id, status) {
-  await pool.query("UPDATE submissions SET status=$1, updated_at=NOW() WHERE id=$2", [status, id]);
+export async function updateSubmissionStatus(id, status, db = pool) {
+  await db.query("UPDATE submissions SET status=$1, updated_at=NOW() WHERE id=$2", [status, id]);
   return true;
 }
 
-export async function updateSubmissionAnalysis(submissionId, analysisObj) {
-  const client = await pool.connect();
-  try {
-    const sql = `
-      INSERT INTO ai_reports (
-        submission_id,
-        overall_score,
-        pronunciation_score,
-        fluency_score,
-        grammar_issues,
-        pronunciation_issues,
-        suggestions,
-        raw_ai_response,
-        word_analysis,
-        topic,
-        topic_confidence,
-        topic_alignment,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        $1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8::jsonb, $9::jsonb, $10, $11, $12::jsonb, NOW(), NOW()
-      )
-      ON CONFLICT (submission_id) DO UPDATE SET
-        overall_score = EXCLUDED.overall_score,
-        pronunciation_score = EXCLUDED.pronunciation_score,
-        fluency_score = EXCLUDED.fluency_score,
-        grammar_issues = EXCLUDED.grammar_issues,
-        pronunciation_issues = EXCLUDED.pronunciation_issues,
-        suggestions = EXCLUDED.suggestions,
-        raw_ai_response = EXCLUDED.raw_ai_response,
-        word_analysis = EXCLUDED.word_analysis,
-        topic = EXCLUDED.topic,
-        topic_confidence = EXCLUDED.topic_confidence,
-        topic_alignment = EXCLUDED.topic_alignment,
-        updated_at = NOW()
-      RETURNING *;
-    `;
+export async function claimSubmissionForAnalysis(id, db = pool, recoverStale = false) {
+  // Stale processing is claimable only by the session-locked worker adapter.
+  const result = await db.query(`UPDATE submissions SET status='processing', updated_at=NOW()
+    WHERE id=$1 AND (status IN ('pending','pending_transcription','failed')
+      OR ($2::boolean AND status='processing' AND updated_at < NOW() - INTERVAL '15 minutes'))
+    RETURNING id`, [id, recoverStale]);
+  return result.rowCount === 1;
+}
 
-    // Merge thêm topic_detection_raw vào raw_ai_response
-    const rawResp = {
-      ...(analysisObj.raw_ai_response ?? {}),
-      topic_detection_raw: analysisObj.topic_detection_raw ?? null
-    };
-
-    const values = [
-      submissionId,
-      analysisObj.overall_score ?? null,
-      analysisObj.pronunciation_score ?? null,
-      analysisObj.fluency_score ?? null,
-      JSON.stringify(analysisObj.grammar_issues ?? []),
-      JSON.stringify(analysisObj.pronunciation_issues ?? []),
-      JSON.stringify(analysisObj.suggestions ?? []),
-      JSON.stringify(rawResp),
-      JSON.stringify(analysisObj.word_analysis ?? []),
-      analysisObj.topic ?? null,
-      analysisObj.topic_confidence ?? null,
-      JSON.stringify(analysisObj.topic_alignment ?? null)
-    ];
-
-    const res = await client.query(sql, values);
-    return res.rows[0];
-  } finally {
-    client.release();
-  }
+export async function updateSubmissionAnalysis(submissionId, analysisObj, db = pool) {
+  return persistTranscriptAssessment(db, submissionId, analysisObj, error => {
+    console.warn("Canonical transcript assessment was not persisted:", error.code || "UNKNOWN_ERROR");
+  });
 }
 
 export async function getAnalysisBySubmissionId(submissionId) {
@@ -869,56 +541,41 @@ export async function getAnalysisBySubmissionId(submissionId) {
     } catch {
       rawResp = {};
     }
+    const serializedAssessment = serializeLearnerTranscriptAssessment(
+      row,
+      rawResp,
+      "assessment_contract"
+    );
 
     return {
-      ...row,
-      raw_ai_response: rawResp,
-      topic_detection_raw: rawResp.topic_detection_raw ?? null
+      ...serializedAssessment,
+      topic_detection_raw: serializedAssessment.raw_ai_response.topic_detection_raw ?? null
     };
   } finally {
     client.release();
   }
 }
 
-/* Convenience wrapper: analyze a submission using AI Service and persist result */
-export async function analyzeSubmissionWithAI(submissionId) {
-  const sub = await getSubmissionById(submissionId);
-  if (!sub || !sub.transcript) throw new Error("Transcript not found");
+const submissionAnalysisService = createSubmissionAnalysisService({
+  getSubmission: getSubmissionById,
+  analyzeTranscript: analyzeLearnerTranscript,
+  persistAnalysis: updateSubmissionAnalysis
+});
 
-  // Call AI Service to analyze transcript (via API Gateway)
-  try {
-    const response = await fetch(`http://localhost:${process.env.API_GATEWAY_PORT || 4000}/api/ai/learner/analyze-transcript`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        transcript: sub.transcript,
-        options: { runTopicDetection: true, challenge: null }
-      })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`AI Service error: ${response.status}`);
-    }
-    
-    const result = await response.json();
-    return await updateSubmissionAnalysis(submissionId, result);
-  } catch (err) {
-    console.error("Error calling AI Service:", err);
-    throw err;
-  }
-}
+export const analyzeSubmissionWithAI =
+  submissionAnalysisService.analyzeSubmissionWithAI;
 
 export async function upsertLearnerChallenge({
-  learnerId, challengeId, assignmentId = null, status = "in_progress", attempts = 0, is_bookmarked = false
-}) {
-  const r = await pool.query(
+  learnerId, challengeId, assignmentId = null, status = "in_progress", attempts = 0, is_bookmarked = null
+}, db = pool) {
+  const r = await db.query(
     `INSERT INTO learner_challenges (learner_id, challenge_id, assignment_id, status, attempts, is_bookmarked, created_at, updated_at)
-     VALUES ($1,$2,$3,$4,$5,$6,NOW(),NOW())
+     VALUES ($1,$2,$3,$4,$5,COALESCE($6::boolean,FALSE),NOW(),NOW())
      ON CONFLICT (learner_id, challenge_id)
      DO UPDATE SET
        status = EXCLUDED.status,
        attempts = learner_challenges.attempts + GREATEST(EXCLUDED.attempts,0),
-       is_bookmarked = EXCLUDED.is_bookmarked,
+       is_bookmarked = CASE WHEN $6::boolean IS NULL THEN learner_challenges.is_bookmarked ELSE EXCLUDED.is_bookmarked END,
        updated_at = NOW()
      RETURNING *;`,
     [learnerId, challengeId, assignmentId, status, attempts, is_bookmarked]
@@ -926,24 +583,50 @@ export async function upsertLearnerChallenge({
   return r.rows[0];
 }
 
-export async function listSubmissionsForLearner(learnerId, { limit = 100 } = {}) {
+export async function listSubmissionsForLearner(learnerId, { limit = 100, offset = 0 } = {}) {
   const r = await pool.query(
     `SELECT s.*,
-            ar.overall_score, ar.created_at AS ai_report_at
+            ar.overall_score, ar.raw_ai_response AS ai_raw_response,
+            ar.created_at AS ai_report_at
      FROM submissions s
      LEFT JOIN ai_reports ar ON ar.submission_id = s.id
      WHERE s.learner_id = $1
-     ORDER BY s.submitted_at DESC
-     LIMIT $2`,
-    [learnerId, parseInt(limit)]
+     ORDER BY s.submitted_at DESC NULLS LAST, s.id DESC
+     LIMIT $2 OFFSET $3`,
+    [learnerId, limit, offset]
   );
-  return r.rows;
+  return r.rows.map(row => {
+    let rawResponse = row.ai_raw_response || {};
+    if (typeof rawResponse === "string") {
+      try {
+        rawResponse = JSON.parse(rawResponse);
+      } catch {
+        rawResponse = {};
+      }
+    }
+    return serializeLearnerSubmissionListRow(row, rawResponse);
+  });
 }
 
-export async function reviewSubmissionByMentor(submissionId, {
-  mentorId, finalScore = null, feedback = null, pronunciation_score = null, fluency_score = null, audio_url = null, overrideAI = false
-}) {
-  const client = await pool.connect();
+export async function reviewSubmissionByMentor(submissionId, review, dependencies = {}) {
+  const {
+    mentorId,
+    finalScore: rawFinalScore = null,
+    feedback = null,
+    pronunciation_score: rawPronunciationScore = null,
+    fluency_score: rawFluencyScore = null,
+    audio_url = null
+  } = review;
+  const normalizedScores = normalizeMentorReviewScores({
+    final_score: rawFinalScore,
+    pronunciation_score: rawPronunciationScore,
+    fluency_score: rawFluencyScore
+  });
+  const finalScore = normalizedScores.final_score;
+  const pronunciation_score = normalizedScores.pronunciation_score;
+  const fluency_score = normalizedScores.fluency_score;
+  const { database = pool } = dependencies;
+  const client = await database.connect();
   try {
     await client.query("BEGIN");
 
@@ -966,14 +649,30 @@ export async function reviewSubmissionByMentor(submissionId, {
       return { ok: false, status: 403, message: "Forbidden: learner not assigned to this mentor" };
     }
 
-    // tạo feedback nếu có text hoặc audio
+    // Store the review and its scores together so its human provenance is retained.
     let feedbackId = null;
-    if (feedback || audio_url) {
+    if (
+      feedback ||
+      audio_url ||
+      finalScore != null ||
+      pronunciation_score != null ||
+      fluency_score != null
+    ) {
       const fRes = await client.query(
-        `INSERT INTO feedbacks (submission_id, learner_id, mentor_id, content, audio_url, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
+        `INSERT INTO feedbacks
+           (submission_id, learner_id, mentor_id, content, audio_url, final_score, pronunciation_score, fluency_score, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
          RETURNING id`,
-        [submissionId, learner_id, mentorId, feedback || null, audio_url || null]
+        [
+          submissionId,
+          learner_id,
+          mentorId,
+          feedback || null,
+          audio_url || null,
+          finalScore ?? null,
+          pronunciation_score ?? null,
+          fluency_score ?? null
+        ]
       );
       feedbackId = fRes.rows[0]?.id || null;
     }
@@ -985,9 +684,9 @@ export async function reviewSubmissionByMentor(submissionId, {
        VALUES ($1,$2,$3,$4,$5,$6,'completed',NOW())
        ON CONFLICT (learner_id, challenge_id)
        DO UPDATE SET
-         final_score = EXCLUDED.final_score,
-         pronunciation_score = EXCLUDED.pronunciation_score,
-         fluency_score = EXCLUDED.fluency_score,
+         final_score = COALESCE(EXCLUDED.final_score, learner_challenges.final_score),
+         pronunciation_score = COALESCE(EXCLUDED.pronunciation_score, learner_challenges.pronunciation_score),
+         fluency_score = COALESCE(EXCLUDED.fluency_score, learner_challenges.fluency_score),
          feedback_id = COALESCE(EXCLUDED.feedback_id, learner_challenges.feedback_id),
          status = 'completed',
          updated_at = NOW()
@@ -1002,14 +701,6 @@ export async function reviewSubmissionByMentor(submissionId, {
       ]
     );
 
-    // (tuỳ chọn) cập nhật ai_reports nếu overrideAI
-    if (overrideAI && finalScore != null) {
-      await client.query(
-        `UPDATE ai_reports SET overall_score = $1, updated_at = NOW() WHERE submission_id = $2`,
-        [finalScore, submissionId]
-      );
-    }
-
     // cập nhật trạng thái submission
     await client.query(
       `UPDATE submissions SET status = 'reviewed', updated_at = NOW() WHERE id = $1`,
@@ -1018,32 +709,22 @@ export async function reviewSubmissionByMentor(submissionId, {
 
     await client.query("COMMIT");
     
-    // Lưu challenge evaluation để AI học (async, không block)
-    if (finalScore !== null && finalScore !== undefined) {
-      try {
-        const progressAnalyticsService = await import("./progressAnalyticsService.js");
-        await progressAnalyticsService.learnFromChallengeEvaluation(
-          learner_id,
-          challenge_id,
-          submissionId,
-          {
-            final_score: finalScore,
-            pronunciation_score: pronunciation_score,
-            fluency_score: fluency_score
-          },
-          feedback || ""
-        ).catch(err => {
-          console.warn("⚠️ Failed to save challenge evaluation for AI learning:", err);
-        });
-      } catch (err) {
-        // Ignore errors, không block response
-      }
-    }
-    
     return {
       ok: true,
       learner_challenge: lcRes.rows[0],
-      feedback_id: feedbackId
+      feedback_id: feedbackId,
+      assessment_contract: createAssessmentContract({
+        type: "mentor_review",
+        source: "mentor",
+        method: "human_review",
+        scale: "0-100",
+        status: "completed",
+        metrics: {
+          final_score: finalScore,
+          pronunciation: pronunciation_score,
+          fluency: fluency_score
+        }
+      })
     };
   } catch (err) {
     await client.query("ROLLBACK");
@@ -1053,8 +734,8 @@ export async function reviewSubmissionByMentor(submissionId, {
   }
 }
 
-export async function updateSubmissionSegments(submissionId, segments) {
-  return pool.query(
+export async function updateSubmissionSegments(submissionId, segments, db = pool) {
+  return db.query(
     "UPDATE submissions SET segments = $1, updated_at = NOW() WHERE id = $2",
     [JSON.stringify(segments), submissionId]
   );
@@ -1064,7 +745,7 @@ export async function updateSubmissionSegments(submissionId, segments) {
 
 export async function getBookmarkedChallenges(learnerId) {
   const sql = `
-    SELECT c.id, c.title, c.description, c.level, c.type, c.created_at,
+    SELECT c.id, c.title, c.description, ${challengeLevelSql('c.level')} AS level, c.type, c.created_at,
            c.mentor_id,
            u.name AS mentor_name,
            lc.is_bookmarked, lc.updated_at AS bookmarked_at
@@ -1109,4 +790,3 @@ export async function toggleBookmark(learnerId, challengeId) {
     return r.rows[0];
   }
 }
-

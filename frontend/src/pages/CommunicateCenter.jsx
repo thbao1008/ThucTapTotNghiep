@@ -1,18 +1,25 @@
+import { englishText } from '../i18n/uiLanguage.js';
+import { UiText } from '../i18n/UiLanguage.jsx';
 // src/pages/CommunicateCenter.jsx
 import React, { useEffect, useState, useRef } from "react";
+import {Link,useSearchParams} from 'react-router-dom';
 import { FiHeart, FiMessageCircle, FiMic, FiSend, FiSmile, FiImage, FiX, FiChevronDown, FiChevronUp, FiPlay, FiCornerDownRight, FiSettings, FiArrowLeft } from "react-icons/fi";
+import {communityPostRequest,applyCommunityLike} from "../utils/communityFeed.js";
 import api from "../api";
 import Modal from "../components/common/Modal";
 import AudioPlayer from "../components/common/AudioPlayer";
-import Notifications from "../components/common/Notifications";
+import UserAvatar from '../components/common/UserAvatar.jsx';
 import AdminCommunity from "../components/admin/AdminCommunity";
 import { useAuth } from "../context/AuthContext";
 import { getAuth } from "../utils/auth";
 import { normalizeFileUrl, normalizeVideoUrl, normalizeImageUrl, normalizeAudioUrl } from "../utils/apiHelpers";
 import "../styles/communicate.css";
+import '../styles/community-refresh.css';
 
 export default function CommunicateCenter() {
-  const {  } = useAuth();
+  const context=useAuth();
+  const [profile,setProfile]=useState(null);
+  const composerRef=useRef(null);
   const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState("all"); // "all" | "my-posts" | "liked"
@@ -21,6 +28,15 @@ export default function CommunicateCenter() {
   const [postComments, setPostComments] = useState({}); // { postId: [comments] }
   const [loadingComments, setLoadingComments] = useState({});
   const [showCommentsModal, setShowCommentsModal] = useState(false); // Modal bình luận
+  const [linkedPost,setLinkedPost]=useState(null);
+  const [searchParams,setSearchParams]=useSearchParams();
+  const linkedPostId=searchParams.get('post');
+  const feedRequestRef=useRef(0);
+  const loadingMoreRef=useRef(false);
+  const interactionPending=useRef(new Set()),commentsRequests=useRef(new Map()),viewActive=useRef(false);
+  const [reactionBusy,setReactionBusy]=useState({}),[commentBusy,setCommentBusy]=useState({}),[actionError,setActionError]=useState('');
+  const commentInputRef=useRef(null);
+  useEffect(()=>{viewActive.current=true;return()=>{viewActive.current=false;commentsRequests.current.forEach(controller=>controller.abort());};},[]);
   const [showAdminManage, setShowAdminManage] = useState(false); // Toggle hiển thị AdminCommunity
   
   // Post form state
@@ -46,62 +62,40 @@ export default function CommunicateCenter() {
 
   // Lấy user từ auth (đúng cách)
   const auth = getAuth();
-  const user = auth?.user || {};
+  const account=context?.user||auth?.user||{};
+  const hasProfile=profile&&String(profile.id)===String(account.id);
+  const user = hasProfile?{...account,name:profile.name,avatar_url:profile.avatar_url}:account;
+  const currentAvatar=hasProfile?profile.avatar_url:account.avatar_url||account.avatar;
   const role = user?.role || "";
-  const [userName, setUserName] = useState(user?.name || "");
+  const userName=user.name||'';
+  const profilePath={learner:'/learn/profile',mentor:'/mentor/profile',admin:'/admin/profile'}[role];
+  useEffect(()=>{
+    if(!account.id)return;
+    const controller=new AbortController();
+    api.get('/users/me',{signal:controller.signal}).then(({data})=>{const current=data.user??data;if(!controller.signal.aborted&&String(current?.id)===String(account.id))setProfile(current);}).catch(()=>{});
+    return()=>controller.abort();
+  },[account.id]);
+  useEffect(()=>{
+    if(!/^[1-9]\d*$/.test(linkedPostId||'')||Number(linkedPostId)>2147483647||!user.id)return;
+    const controller=new AbortController();
+    api.get(`/community/posts/${linkedPostId}`,{signal:controller.signal}).then(({data})=>{
+      if(controller.signal.aborted||!data?.post)return;
+      setShowAdminManage(false);setLinkedPost(data.post);setSelectedPostId(data.post.id);setShowCommentsModal(true);
+      setPostComments(previous=>({...previous,[data.post.id]:data.comments||[]}));
+    }).catch(()=>{if(!controller.signal.aborted)setActionError('Bài viết này không còn khả dụng hoặc bạn không có quyền xem.');});
+    return()=>controller.abort();
+  },[linkedPostId,user.id]);
   
-  // Debug: Log role để kiểm tra
-  useEffect(() => {
-    console.log("Current role:", role);
-    console.log("User object:", user);
-    if (role === "admin") {
-      console.log("✅ Admin role detected, nút Quản lý bài đăng should be visible");
-    } else {
-      console.log("❌ Role is not admin:", role);
-    }
-  }, [role, user]);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const audioPlayerRef = useRef(null);
   const observerRef = useRef(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
-  // Load user name if not available
   useEffect(() => {
-    if (!userName && user?.id && role) {
-      // Try to get user name from API if not in localStorage
-      const fetchUserName = async () => {
-        try {
-          let res;
-          if (role === 'learner') {
-            res = await api.get(`/learners/by-user/${user.id}`);
-            if (res.data?.learner?.name) {
-              setUserName(res.data.learner.name);
-            }
-          } else if (role === 'mentor') {
-            res = await api.get(`/mentors/by-user/${user.id}`);
-            if (res.data?.name) {
-              setUserName(res.data.name);
-            }
-          }
-        } catch (err) {
-          console.error("Error loading user name:", err);
-          // Fallback: use name from localStorage if available
-          if (user?.name) {
-            setUserName(user.name);
-          }
-        }
-      };
-      fetchUserName();
-    } else if (user?.name && !userName) {
-      // Use name from localStorage if available
-      setUserName(user.name);
-    }
-  }, [userName, user?.id, user?.name, role]);
-
-  useEffect(() => {
-    loadPosts(true);
-  }, [activeTab, myPostsFilter]);
+    if(!showAdminManage)loadPosts(true);
+    return ()=>{feedRequestRef.current++;};
+  }, [activeTab, myPostsFilter, showAdminManage, user.id]);
 
   // Infinite scroll
   useEffect(() => {
@@ -173,72 +167,32 @@ export default function CommunicateCenter() {
     }
   }
 
-  async function loadPosts(reset = false) {
-    try {
-      setLoading(true);
-      if (reset) {
-        setPage(1);
-        setPosts([]);
-      }
-      
-      let response;
-      if (activeTab === "my-posts") {
-        const status = myPostsFilter === "all" ? null : myPostsFilter;
-        response = await api.get("/community/posts/my-posts", {
-          params: { status, page: 1, limit: 20 }
-        });
-      } else if (activeTab === "liked") {
-        response = await api.get("/community/posts/liked", {
-          params: { page: 1, limit: 20 }
-        });
-      } else {
-        response = await api.get("/community/posts", {
-          params: { page: 1, limit: 20 }
-        });
-      }
-      
-      const newPosts = response.data.posts || [];
-      if (reset) {
-        setPosts(newPosts);
-      } else {
-        setPosts(prev => [...prev, ...newPosts]);
-      }
-      setHasMore(newPosts.length === 20);
-    } catch (err) {
-      console.error("Error loading posts:", err);
-    } finally {
-      setLoading(false);
-    }
+  async function loadPosts(reset=false){
+    const requestId=++feedRequestRef.current;
+    setLoading(true);
+    if(reset){setPage(1);setPosts([]);}
+    try{
+      const request=communityPostRequest(activeTab,myPostsFilter,1);
+      const response=await api.get(request.url,{params:request.params});
+      if(requestId!==feedRequestRef.current)return;
+      const rows=response.data.posts||[];
+      setPosts(previous=>reset?rows:[...previous,...rows]);setHasMore(rows.length===20);
+    }catch{if(requestId===feedRequestRef.current)console.warn('Không thể tải bảng tin cộng đồng.');}
+    finally{if(requestId===feedRequestRef.current)setLoading(false);}
   }
 
-  async function loadMorePosts() {
-    if (loading || !hasMore) return;
-    
-    try {
-      setLoading(true);
-      const nextPage = page + 1;
-      let response;
-      
-      if (activeTab === "my-posts") {
-        const status = myPostsFilter === "all" ? null : myPostsFilter;
-        response = await api.get("/community/posts/my-posts", {
-          params: { status, page: nextPage, limit: 20 }
-        });
-      } else {
-        response = await api.get("/community/posts", {
-          params: { page: nextPage, limit: 20 }
-        });
-      }
-      
-      const newPosts = response.data.posts || [];
-      setPosts(prev => [...prev, ...newPosts]);
-      setHasMore(newPosts.length === 20);
-      setPage(nextPage);
-    } catch (err) {
-      console.error("Error loading more posts:", err);
-    } finally {
-      setLoading(false);
-    }
+  async function loadMorePosts(){
+    if(loading||!hasMore||loadingMoreRef.current||showAdminManage)return;
+    const requestId=feedRequestRef.current;loadingMoreRef.current=true;setLoading(true);
+    try{
+      const nextPage=page+1;
+      const request=communityPostRequest(activeTab,myPostsFilter,nextPage);
+      const response=await api.get(request.url,{params:request.params});
+      if(requestId!==feedRequestRef.current)return;
+      const rows=response.data.posts||[];
+      setPosts(previous=>[...previous,...rows]);setHasMore(rows.length===20);setPage(nextPage);
+    }catch{if(requestId===feedRequestRef.current)console.warn('Không thể tải thêm bài đăng.');}
+    finally{loadingMoreRef.current=false;if(requestId===feedRequestRef.current)setLoading(false);}
   }
 
   async function handleCreatePost() {
@@ -368,34 +322,49 @@ export default function CommunicateCenter() {
     }
   }
 
-  async function handleToggleLike(postId) {
+  async function handleToggleLike(postId,commentId=null) {
+    const key=commentId?`comment:${commentId}`:`post:${postId}`;
+    if(interactionPending.current.has(key))return;
+    interactionPending.current.add(key);setReactionBusy(previous=>({...previous,[key]:true}));setActionError('');
     try {
-      await api.post("/community/likes", { postId });
-      loadPosts(true);
+      const {data}=await api.post("/community/likes", commentId?{commentId}:{postId});
+      if(!viewActive.current)return;
+      if(commentId)setPostComments(previous=>({...previous,[postId]:applyCommunityLike(previous[postId]||[],commentId,data)}));
+      else {
+        setPosts(previous=>applyCommunityLike(previous,postId,data,activeTab==='liked'));
+        setLinkedPost(previous=>previous?.id===postId?applyCommunityLike([previous],postId,data)[0]:previous);
+        if(activeTab==='liked'&&!data.liked){setShowCommentsModal(false);setSelectedPostId(null);}
+      }
     } catch (err) {
-      console.error("Error toggling like:", err);
-    }
+      if(viewActive.current)setActionError('Không thể cập nhật lượt thích. Vui lòng thử lại.');
+    }finally{interactionPending.current.delete(key);if(viewActive.current)setReactionBusy(previous=>({...previous,[key]:false}));}
   }
 
   async function selectPost(postId) {
+    setActionError('');
     setSelectedPostId(postId);
     setShowCommentsModal(true);
-    await loadComments(postId);
+    await loadComments(postId,true);
   }
 
-  async function loadComments(postId) {
-    if (postComments[postId] || loadingComments[postId]) return;
-    
+  async function loadComments(postId,force=false) {
+    if (!force&&(postComments[postId] || commentsRequests.current.has(postId))) return;
+    commentsRequests.current.get(postId)?.abort();
+    const controller=new AbortController();commentsRequests.current.set(postId,controller);
     try {
       setLoadingComments(prev => ({ ...prev, [postId]: true }));
-      const response = await api.get(`/community/posts/${postId}/comments`);
+      const response = await api.get(`/community/posts/${postId}/comments`,{signal:controller.signal});
+      if(controller.signal.aborted||!viewActive.current)return;
       setPostComments(prev => ({
         ...prev,
         [postId]: response.data.comments || []
       }));
     } catch (err) {
-      console.error("Error loading comments:", err);
+      if(!controller.signal.aborted&&viewActive.current)setActionError('Không tải được bình luận. Vui lòng thử lại.');
     } finally {
+      if(commentsRequests.current.get(postId)!==controller)return;
+      commentsRequests.current.delete(postId);
+      if(!viewActive.current)return;
       setLoadingComments(prev => {
         const newState = { ...prev };
         delete newState[postId];
@@ -406,8 +375,9 @@ export default function CommunicateCenter() {
 
   async function handleCreateComment(postId, parentCommentId = null) {
     const form = commentForms[postId];
-    if (!form || (!form.content && !form.audioUrl)) return;
-    
+    const key=`send:${postId}`;
+    if (!form || (!form.content?.trim() && !form.audioUrl)||interactionPending.current.has(key)) return;
+    interactionPending.current.add(key);setCommentBusy(previous=>({...previous,[postId]:true}));setActionError('');
     try {
       const formData = new FormData();
       formData.append("content", form.content || "");
@@ -418,9 +388,15 @@ export default function CommunicateCenter() {
         formData.append("parentCommentId", parentCommentId);
       }
 
-      await api.post(`/community/posts/${postId}/comments`, formData, {
+      const {data}=await api.post(`/community/posts/${postId}/comments`, formData, {
         headers: { "Content-Type": "multipart/form-data" }
       });
+      if(!viewActive.current)return;
+      if(!data?.comment?.id)throw Error('Unconfirmed comment');
+      // Display the confirmed comment immediately, even when a follow-up list request fails.
+      setPostComments(previous=>({...previous,[postId]:[...(previous[postId]||[]).filter(row=>row.id!==data.comment.id),data.comment]}));
+      setPosts(previous=>previous.map(row=>row.id===postId?{...row,comments_count:data.comment.comments_count??Number(row.comments_count||0)+1}:row));
+      setLinkedPost(previous=>previous?.id===postId?{...previous,comments_count:data.comment.comments_count??Number(previous.comments_count||0)+1}:previous);
 
       // Reset form
       setCommentForms(prev => {
@@ -435,13 +411,10 @@ export default function CommunicateCenter() {
       });
       
       // Reload comments
-      await loadComments(postId);
-      // Reload posts to update comment count
-      loadPosts(true);
+      await loadComments(postId,true);
     } catch (err) {
-      console.error("Error creating comment:", err);
-      alert("Lỗi khi bình luận: " + (err.response?.data?.message || err.message));
-    }
+      if(viewActive.current)setActionError(err.response?.data?.message||'Không thể gửi bình luận. Vui lòng thử lại.');
+    }finally{interactionPending.current.delete(key);if(viewActive.current)setCommentBusy(previous=>({...previous,[postId]:false}));}
   }
 
   // Audio recording functions
@@ -506,7 +479,7 @@ export default function CommunicateCenter() {
       }
     } catch (err) {
       console.error("Error starting recording:", err);
-      alert("Không thể truy cập microphone");
+      alert(englishText("Không thể truy cập microphone"));
     }
   }
 
@@ -549,29 +522,21 @@ export default function CommunicateCenter() {
     setShowEmojiPicker(prev => ({ ...prev, [postId]: false }));
   }
 
-  const myPostsStats = {
-    all: posts.length,
-    approved: posts.filter(p => p.status === "approved").length,
-    pending: posts.filter(p => p.status === "pending").length,
-    rejected: posts.filter(p => p.status === "rejected").length
-  };
-
   const content = (
-    <div className="communicate-center">
+    <div className="communicate-center community-page">
       <div className="communicate-header">
-        <h2>Cư Dân AESP</h2>
+        <div><span className="community-eyebrow">AESP COMMUNITY</span><h1><UiText>Community</UiText></h1><p><UiText>Ask a question or share what you’re practising.</UiText></p></div>
         <div className="header-actions">
           {role === "admin" && (
             <button
               className="btn-admin-manage"
               onClick={() => setShowAdminManage(!showAdminManage)}
-              title="Quản lý bài đăng"
+              title={englishText("Quản lý bài đăng")}
             >
               {showAdminManage ? <FiArrowLeft /> : <FiSettings />} 
-              <span>{showAdminManage ? "Quay lại" : "Quản lý bài đăng"}</span>
+              <span><UiText>{showAdminManage ? "Quay lại" : "Quản lý bài đăng"}</UiText></span>
             </button>
           )}
-          <Notifications />
         </div>
       </div>
 
@@ -580,27 +545,25 @@ export default function CommunicateCenter() {
         <AdminCommunity />
       ) : (
         <>
+          <div className="community-layout"><main className="community-feed">
           <div className="communicate-tabs">
             <button
               className={`tab-button ${activeTab === "all" ? "active" : ""}`}
+              aria-pressed={activeTab==='all'}
               onClick={() => setActiveTab("all")}
-            >
-              Tất cả bài đăng
-            </button>
+            >{" "}<UiText text={"Tất cả bài đăng"} />{" "}</button>
             {role !== "admin" && (
               <>
                 <button
                   className={`tab-button ${activeTab === "my-posts" ? "active" : ""}`}
+                  aria-pressed={activeTab==='my-posts'}
                   onClick={() => setActiveTab("my-posts")}
-                >
-                  Các bài đăng của bạn
-                </button>
+                >{" "}<UiText text={"Các bài đăng của bạn"} />{" "}</button>
                 <button
                   className={`tab-button ${activeTab === "liked" ? "active" : ""}`}
+                  aria-pressed={activeTab==='liked'}
                   onClick={() => setActiveTab("liked")}
-                >
-                  Bài đăng yêu thích
-                </button>
+                >{" "}<UiText text={"Bài đăng yêu thích"} />{" "}</button>
               </>
             )}
           </div>
@@ -610,26 +573,22 @@ export default function CommunicateCenter() {
           <button
             className={`filter-button ${myPostsFilter === "all" ? "active" : ""}`}
             onClick={() => setMyPostsFilter("all")}
-          >
-            Tất cả <span className="filter-badge">{myPostsStats.all}</span>
+          >{" "}<UiText text={"Tất cả"} />{" "}
           </button>
           <button
             className={`filter-button ${myPostsFilter === "approved" ? "active" : ""}`}
             onClick={() => setMyPostsFilter("approved")}
-          >
-            Đã duyệt <span className="filter-badge">{myPostsStats.approved}</span>
+          >{" "}<UiText text={"Đã duyệt"} />{" "}
           </button>
           <button
             className={`filter-button ${myPostsFilter === "pending" ? "active" : ""}`}
             onClick={() => setMyPostsFilter("pending")}
-          >
-            Đang chờ <span className="filter-badge">{myPostsStats.pending}</span>
+          >{" "}<UiText text={"Đang chờ"} />{" "}
           </button>
           <button
             className={`filter-button ${myPostsFilter === "rejected" ? "active" : ""}`}
             onClick={() => setMyPostsFilter("rejected")}
-          >
-            Bị từ chối <span className="filter-badge">{myPostsStats.rejected}</span>
+          >{" "}<UiText text={"Bị từ chối"} />{" "}
           </button>
         </div>
       )}
@@ -639,15 +598,9 @@ export default function CommunicateCenter() {
         <div className="post-form-card">
           <div className="post-form-header">
             <div className="author-avatar">
-              {user?.avatar_url ? (
-                <img src={user.avatar_url} alt={user?.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-              ) : (
-                user?.name?.charAt(0).toUpperCase() || "U"
-              )}
+              <UserAvatar src={currentAvatar} name={userName} size={42}/>
             </div>
-            <div className="post-form-title">
-              Cùng chia sẻ học thuật thôi {userName ? userName : "bạn"}
-            </div>
+            <div className="post-form-title"><strong>{userName}</strong><span><UiText>Share an update</UiText></span></div>
             <button
               className={`btn-mic-header ${isRecording ? "recording" : ""}`}
               onClick={() => {
@@ -657,18 +610,19 @@ export default function CommunicateCenter() {
                   startRecording(null, true);
                 }
               }}
-              title={isRecording ? "Dừng ghi âm" : "Ghi âm"}
+              title={englishText(isRecording ? "Dừng ghi âm" : "Ghi âm")}
             >
               <FiMic />
             </button>
           </div>
           <div className="post-form-content">
             <textarea
-              placeholder="Bạn đang nghĩ gì?"
+              placeholder={englishText("Bạn đang nghĩ gì?")}
               value={postContent}
               onChange={(e) => setPostContent(e.target.value)}
               className="form-textarea"
-              rows={4}
+              ref={composerRef} aria-label={englishText('Nội dung bài viết')}
+              rows={3}
             />
             
             {/* Audio Preview với Waveform */}
@@ -710,7 +664,7 @@ export default function CommunicateCenter() {
                       />
                     ))}
                   </div>
-                  <div className="audio-duration">{formatDuration(audioDuration)}</div>
+                  <div className="audio-duration"><UiText>{formatDuration(audioDuration)}</UiText></div>
                 </div>
                 <button
                   className="btn-remove-audio"
@@ -733,7 +687,7 @@ export default function CommunicateCenter() {
             {isRecording && (
               <div className="recording-indicator">
                 <div className="recording-dot"></div>
-                <span>Đang ghi âm... {formatDuration(recordingDuration)}</span>
+                <span><UiText text={"Đang ghi âm..."} />{" "}<UiText>{formatDuration(recordingDuration)}</UiText></span>
               </div>
             )}
 
@@ -769,8 +723,8 @@ export default function CommunicateCenter() {
             )}
 
             <div className="form-actions">
-              <label className="btn-icon" title="Upload hình ảnh hoặc video">
-                <FiImage />
+              <label className="btn-icon" title={englishText("Upload hình ảnh hoặc video")}>
+                <FiImage aria-hidden="true"/><span><UiText>Photo / video</UiText></span>
                 <input
                   type="file"
                   accept="image/*,video/*"
@@ -783,20 +737,21 @@ export default function CommunicateCenter() {
                 onClick={handleCreatePost}
                 disabled={(!postContent && !audioUrl && !postImage && !postVideo) || submitting}
               >
-                <FiSend /> {submitting ? "Đang đăng..." : "Đăng bài"}
+                <FiSend /> <UiText>{submitting ? "Đang đăng..." : "Đăng bài"}</UiText>
               </button>
             </div>
           </div>
         </div>
       )}
 
+      {actionError&&!showCommentsModal&&<p role="alert" className="community-action-error"><UiText>{actionError}</UiText></p>}
       {/* Posts Column - Full Width */}
       <div className="posts-column">
           {loading && posts.length === 0 ? (
-            <div className="loading">Đang tải...</div>
+            <div className="loading"><UiText text={"Đang tải..."} /></div>
           ) : posts.length === 0 ? (
             <div className="empty-state">
-              <p>Chưa có bài đăng nào</p>
+              <p><UiText text={"Chưa có bài đăng nào"} /></p>
             </div>
           ) : (
             <div className="posts-list">
@@ -806,35 +761,31 @@ export default function CommunicateCenter() {
                   className={`post-card ${post.is_pinned ? "pinned" : ""} ${post.is_viewed === 0 ? "unviewed" : ""}`}
                   data-post-id={post.id}
                 >
-              {post.is_pinned && <div className="pin-badge">📌 Đã ghim</div>}
+              {post.is_pinned && <div className="pin-badge"><UiText text={"📌 Đã ghim"} /></div>}
               
               <div className="post-header">
                 <div className="post-author">
                   <div className="author-avatar">
-                    {post.author_avatar_url ? (
-                      <img src={post.author_avatar_url} alt={post.author_name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                    ) : (
-                      post.author_name?.charAt(0).toUpperCase() || "U"
-                    )}
+                    <UserAvatar src={post.author_avatar_url} name={post.author_name} size={44}/>
                   </div>
                   <div>
-                    <div className="author-name">{post.author_name || "Người dùng"}</div>
+                    <div className="author-name">{post.author_name || <UiText text={"Người dùng"} />}</div>
                     <div className="post-meta">
-                      {new Date(post.created_at).toLocaleDateString("vi-VN", {
+                      <UiText>{new Date(post.created_at).toLocaleDateString('en-GB', {
                         year: "numeric",
                         month: "long",
                         day: "numeric",
                         hour: "2-digit",
                         minute: "2-digit"
-                      })}
+                      })}</UiText>
                     </div>
                   </div>
                 </div>
                 {post.status === "pending" && (
-                  <span className="status-badge pending">Đang chờ duyệt</span>
+                  <span className="status-badge pending"><UiText text={"Đang chờ duyệt"} /></span>
                 )}
                 {post.status === "rejected" && (
-                  <span className="status-badge rejected">Bị từ chối</span>
+                  <span className="status-badge rejected"><UiText text={"Bị từ chối"} /></span>
                 )}
               </div>
 
@@ -845,27 +796,29 @@ export default function CommunicateCenter() {
                 {post.audio_url && (
                   <AudioPlayer src={normalizeAudioUrl(post.audio_url)} />
                 )}
-                {post.image_url && renderMedia(post.image_url)}
+                <UiText>{post.image_url && renderMedia(post.image_url)}</UiText>
               </div>
 
               {post.status === "rejected" && post.rejection_reason && (
                 <div className="rejection-reason">
-                  <strong>Lý do từ chối:</strong> {post.rejection_reason}
+                  <strong><UiText text={"Lý do từ chối:"} /></strong> <UiText>{post.rejection_reason}</UiText>
                 </div>
               )}
 
               <div className="post-actions">
                 <button
+                  type="button" aria-label={englishText(post.is_liked?'Bỏ thích bài viết':'Thích bài viết')} aria-pressed={Boolean(post.is_liked)} disabled={reactionBusy[`post:${post.id}`]}
                   className={`action-btn like-btn ${post.is_liked ? "liked" : ""}`}
                   onClick={() => handleToggleLike(post.id)}
                 >
-                  <FiHeart /> {post.likes_count || 0}
+                  <FiHeart aria-hidden="true" fill={post.is_liked?'currentColor':'none'}/> <UiText>{post.is_liked?'Bỏ thích':'Thích'}</UiText> <span className="community-action-count">{post.likes_count || 0}</span>
                 </button>
                 <button
+                  type="button" aria-label={englishText('Mở bình luận')}
                   className={`action-btn comment-btn ${selectedPostId === post.id ? "active" : ""}`}
                   onClick={() => selectPost(post.id)}
                 >
-                  <FiMessageCircle /> {post.comments_count || 0}
+                  <FiMessageCircle aria-hidden="true"/> <UiText>Bình luận</UiText> <span className="community-action-count">{post.comments_count || 0}</span>
                 </button>
               </div>
         </div>
@@ -873,19 +826,34 @@ export default function CommunicateCenter() {
             </div>
           )}
       </div>
+      </main><aside className="community-sidebar">
+        <div className="community-profile-card">
+          <UserAvatar src={currentAvatar} name={userName} size={64}/>
+          <h2>{userName}</h2><span className="community-role"><UiText>{role==='admin'?'Admin':role==='mentor'?'Mentor':'Learner'}</UiText></span>
+          {profilePath&&<Link className="community-profile-link" to={profilePath}><UiText>View profile</UiText><span aria-hidden="true">↗</span></Link>}
+        </div>
+        <div className="community-note-card"><h3><UiText>Your community</UiText></h3>
+          <p><UiText>Questions, practice ideas and useful resources.</UiText></p>
+          <button type="button" onClick={()=>{setActiveTab('all');requestAnimationFrame(()=>composerRef.current?.focus());}}><FiMessageCircle aria-hidden="true"/><UiText>Start a discussion</UiText></button>
+          {role!=='admin'&&<small><UiText>Your posts appear after review.</UiText></small>}
+        </div>
+      </aside></div>
 
           {/* Comments Modal */}
           <Modal
-            title="Bình luận"
+            title={englishText("Bình luận")}
             onClose={() => {
               setShowCommentsModal(false);
               setSelectedPostId(null);
+              setLinkedPost(null);
+              if(linkedPostId)setSearchParams(previous=>{const next=new URLSearchParams(previous);next.delete('post');return next;},{replace:true});
             }}
-            className="comments-modal"
+            className="comments-modal community-discussion"
             isOpen={showCommentsModal && selectedPostId !== null}
           >
+        {actionError&&<p role="alert" className="community-action-error"><UiText>{actionError}</UiText></p>}
         {selectedPostId && (() => {
-          const post = posts.find(p => p.id === selectedPostId);
+          const post = posts.find(p => p.id === selectedPostId)||(linkedPost?.id===selectedPostId?linkedPost:null);
           if (!post) return null;
 
           // Group comments by parent
@@ -904,28 +872,27 @@ export default function CommunicateCenter() {
                 {isReply && <FiCornerDownRight className="reply-indicator" />}
                 <div className="comment-author">
                   <div className="author-avatar small">
-                    {comment.author_avatar_url ? (
-                      <img src={comment.author_avatar_url} alt={comment.author_name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                    ) : (
-                      comment.author_name?.charAt(0).toUpperCase() || "U"
-                    )}
+                    <UserAvatar src={comment.author_avatar_url} name={comment.author_name} size={34}/>
                   </div>
                   <div className="comment-content-wrapper">
                     <div className="author-name">
                       {comment.author_name}
-                      {comment.author_role === 'admin' && <span className="admin-tag"> [Người quản trị]</span>}
+                      {comment.author_role === 'admin' && <span className="admin-tag">{" "}<UiText text={"[Người quản trị]"} /></span>}
                     </div>
                     <div className="comment-content">
                       {comment.content && <p>{comment.content}</p>}
                       {comment.audio_url && <AudioPlayer src={normalizeAudioUrl(comment.audio_url)} />}
                     </div>
                     <div className="comment-meta">
-                      {new Date(comment.created_at).toLocaleDateString("vi-VN", {
+                      <button type="button" className={`community-comment-like ${comment.is_liked?'liked':''}`} aria-label={englishText(comment.is_liked?'Bỏ thích bình luận':'Thích bình luận')} aria-pressed={Boolean(comment.is_liked)} disabled={reactionBusy[`comment:${comment.id}`]} onClick={()=>handleToggleLike(selectedPostId,comment.id)}><FiHeart aria-hidden="true" fill={comment.is_liked?'currentColor':'none'}/><span>{comment.likes_count||0}</span></button>
+                      <UiText>{new Date(comment.created_at).toLocaleDateString('en-GB', {
                         hour: "2-digit",
                         minute: "2-digit"
-                      })}
+                      })}</UiText>
                       <button
+                        type="button"
                         className="btn-reply-comment"
+                        disabled={commentBusy[selectedPostId]}
                         onClick={() => {
                           setReplyingTo(prev => ({ ...prev, [selectedPostId]: comment.id }));
                           setCommentForms(prev => ({
@@ -936,9 +903,7 @@ export default function CommunicateCenter() {
                             }
                           }));
                         }}
-                      >
-                        Trả lời
-                      </button>
+                      >{" "}<UiText text={"Trả lời"} />{" "}</button>
                     </div>
                   </div>
                 </div>
@@ -958,22 +923,18 @@ export default function CommunicateCenter() {
                 <div className="post-header">
                   <div className="post-author">
                     <div className="author-avatar">
-                      {post.author_avatar_url ? (
-                        <img src={post.author_avatar_url} alt={post.author_name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                      ) : (
-                        post.author_name?.charAt(0).toUpperCase() || "U"
-                      )}
+                      <UserAvatar src={post.author_avatar_url} name={post.author_name} size={44}/>
                     </div>
                     <div>
-                      <div className="author-name">{post.author_name || "Người dùng"}</div>
+                      <div className="author-name">{post.author_name || <UiText text={"Người dùng"} />}</div>
                       <div className="post-meta">
-                        {new Date(post.created_at).toLocaleDateString("vi-VN", {
+                        <UiText>{new Date(post.created_at).toLocaleDateString('en-GB', {
                           year: "numeric",
                           month: "long",
                           day: "numeric",
                           hour: "2-digit",
                           minute: "2-digit"
-                        })}
+                        })}</UiText>
                       </div>
                     </div>
                   </div>
@@ -982,17 +943,18 @@ export default function CommunicateCenter() {
                 <div className="post-content">
                   {post.content && <p>{post.content}</p>}
                   {post.audio_url && <AudioPlayer src={post.audio_url} />}
-                  {post.image_url && renderMedia(post.image_url)}
+                  <UiText>{post.image_url && renderMedia(post.image_url)}</UiText>
                 </div>
                 <div className="post-actions">
                   <button
+                    type="button" aria-label={englishText(post.is_liked?'Bỏ thích bài viết':'Thích bài viết')} aria-pressed={Boolean(post.is_liked)} disabled={reactionBusy[`post:${post.id}`]}
                     className={`action-btn like-btn ${post.is_liked ? "liked" : ""}`}
                     onClick={() => handleToggleLike(post.id)}
                   >
-                    <FiHeart /> {post.likes_count || 0}
+                      <FiHeart aria-hidden="true" fill={post.is_liked?'currentColor':'none'}/> <UiText>{post.is_liked?'Bỏ thích':'Thích'}</UiText> <span className="community-action-count">{post.likes_count || 0}</span>
                   </button>
-                  <button className="action-btn comment-btn active">
-                    <FiMessageCircle /> {post.comments_count || 0}
+                  <button type="button" aria-label={englishText('Viết bình luận')} className="action-btn comment-btn active" onClick={()=>commentInputRef.current?.focus()}>
+                    <FiMessageCircle aria-hidden="true"/> <UiText>Bình luận</UiText> <span className="community-action-count">{post.comments_count || 0}</span>
                   </button>
                 </div>
               </div>
@@ -1000,13 +962,13 @@ export default function CommunicateCenter() {
               {/* Comments - Right */}
               <div className="comments-modal-comments">
                 {loadingComments[selectedPostId] ? (
-                  <div className="loading-comments">Đang tải bình luận...</div>
+                  <div className="loading-comments"><UiText text={"Đang tải bình luận..."} /></div>
                 ) : (
                   <>
                     <div className="comments-list-scroll">
                       {topLevelComments.length === 0 ? (
                         <div className="empty-comments">
-                          <p>Chưa có bình luận nào</p>
+                          <p><UiText text={"Chưa có bình luận nào"} /></p>
                         </div>
                       ) : (
                         topLevelComments.map(comment => renderComment(comment))
@@ -1016,17 +978,11 @@ export default function CommunicateCenter() {
                     {/* Comment Form */}
                     <div className="comment-form-inline">
                       <div className="author-avatar small">
-                        {user?.avatar_url ? (
-                          <img src={user.avatar_url} alt={user?.name || "User"} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "50%" }} />
-                        ) : (
-                          user?.name?.charAt(0).toUpperCase() || "U"
-                        )}
+                        <UserAvatar src={currentAvatar} name={userName} size={34}/>
                       </div>
                       <div className="comment-input-wrapper">
                         {replyingTo[selectedPostId] && (
-                          <div className="replying-to-indicator">
-                            Đang trả lời bình luận...
-                            <button onClick={() => {
+                          <div className="replying-to-indicator">{" "}<UiText text={"Đang trả lời bình luận..."} />{" "}<button onClick={() => {
                               setReplyingTo(prev => {
                                 const newState = { ...prev };
                                 delete newState[selectedPostId];
@@ -1038,7 +994,7 @@ export default function CommunicateCenter() {
                           </div>
                         )}
                         <textarea
-                          placeholder={replyingTo[selectedPostId] ? "Viết trả lời..." : "Viết bình luận..."}
+                          placeholder={englishText(replyingTo[selectedPostId] ? "Viết trả lời..." : "Viết bình luận...")}
                           value={commentForms[selectedPostId]?.content || ""}
                           onChange={(e) => setCommentForms(prev => ({
                             ...prev,
@@ -1048,12 +1004,15 @@ export default function CommunicateCenter() {
                             }
                           }))}
                           className="form-textarea"
+                          ref={commentInputRef} aria-label={englishText('Viết bình luận')}
+                          disabled={commentBusy[selectedPostId]}
                           rows={2}
                         />
                         <div className="comment-form-actions">
                           <div className="emoji-picker-wrapper">
                             <button
                               className="btn-icon"
+                              type="button" aria-label={englishText('Chọn biểu tượng cảm xúc')} disabled={commentBusy[selectedPostId]}
                               onClick={() => setShowEmojiPicker(prev => ({
                                 ...prev,
                                 [selectedPostId]: !prev[selectedPostId]
@@ -1069,7 +1028,7 @@ export default function CommunicateCenter() {
                                     className="emoji-item"
                                     onClick={() => insertEmoji(selectedPostId, emoji)}
                                   >
-                                    {emoji}
+                                    <UiText>{emoji}</UiText>
                                   </button>
                                 ))}
                               </div>
@@ -1077,6 +1036,7 @@ export default function CommunicateCenter() {
                           </div>
                           <button
                             className={`btn-icon ${commentForms[selectedPostId]?.isRecording ? "recording" : ""}`}
+                            type="button" aria-label={englishText('Ghi âm bình luận')} disabled={commentBusy[selectedPostId]}
                             onClick={() => {
                               if (commentForms[selectedPostId]?.isRecording) {
                                 stopRecording(selectedPostId, false);
@@ -1126,7 +1086,7 @@ export default function CommunicateCenter() {
                                   ))}
                                 </div>
                                 <div className="audio-duration">
-                                  {formatDuration(commentForms[selectedPostId].audioDuration || 0)}
+                                  <UiText>{formatDuration(commentForms[selectedPostId].audioDuration || 0)}</UiText>
                                 </div>
                               </div>
                               <button
@@ -1155,11 +1115,10 @@ export default function CommunicateCenter() {
                             className="btn-primary small"
                             onClick={async () => {
                               await handleCreateComment(selectedPostId, replyingTo[selectedPostId] || null);
-                              await loadComments(selectedPostId);
                             }}
-                            disabled={!commentForms[selectedPostId]?.content && !commentForms[selectedPostId]?.audioUrl}
+                            disabled={commentBusy[selectedPostId]||(!commentForms[selectedPostId]?.content?.trim() && !commentForms[selectedPostId]?.audioUrl)}
                           >
-                            <FiSend /> {replyingTo[selectedPostId] ? 'Trả lời' : 'Gửi'}
+                            <FiSend /> <UiText>{replyingTo[selectedPostId] ? 'Trả lời' : 'Gửi'}</UiText>
                           </button>
                         </div>
                       </div>
@@ -1210,9 +1169,5 @@ export default function CommunicateCenter() {
     </div>
   );
 
-  return (
-    <div className="communicate-center">
-      {content}
-    </div>
-  );
+  return content;
 }

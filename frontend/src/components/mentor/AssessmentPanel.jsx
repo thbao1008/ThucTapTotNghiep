@@ -1,3 +1,4 @@
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿// src/components/mentor/AssessmentPanel.jsx
 import React, { useEffect, useState, useMemo } from "react";
 import api from "../../api";
@@ -12,7 +13,7 @@ export default function AssessmentPanel() {
   const [selectedId, setSelectedId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [showGradedOnly, setShowGradedOnly] = useState(false);
+  const [showAiResultsOnly, setShowAiResultsOnly] = useState(false);
 
   useEffect(() => {
     async function fetchSubmissions() {
@@ -70,48 +71,41 @@ export default function AssessmentPanel() {
     fetchSubmissions();
   }, []);
 
-  // Kiểm tra submission đã được chấm điểm chưa (từ feedbacks theo submission_id)
-  // Chỉ coi là đã chấm nếu có điểm từ feedbacks (mỗi submission có điểm riêng)
-  const isGraded = (submission) => {
-    return !!(
-      (submission.final_score !== null && submission.final_score !== undefined) ||
-      (submission.pronunciation_score !== null && submission.pronunciation_score !== undefined) ||
-      (submission.fluency_score !== null && submission.fluency_score !== undefined) ||
-      submission.feedback
-    );
+  const hasAiResult = (submission) => {
+    const contract = submission.ai_assessment_contract;
+    const score = contract?.metrics?.language_quality;
+    return contract?.status === "completed" &&
+      typeof score === "number" && Number.isFinite(score) && score >= 0 && score <= 100;
   };
 
-  // Lọc submissions
-  const filteredSubmissions = useMemo(() => {
-    if (!showGradedOnly) return submissions;
-    return submissions.filter(isGraded);
-  }, [submissions, showGradedOnly]);
+  const filteredSubmissions = useMemo(
+    () => showAiResultsOnly ? submissions.filter(hasAiResult) : submissions,
+    [submissions, showAiResultsOnly]
+  );
 
-  if (loading) return <div className="assessment-panel-loading">Đang tải submissions...</div>;
-  if (err) return <div className="assessment-panel-error">{err}</div>;
+  if (loading) return <div className="assessment-panel-loading"><UiText text={"Đang tải submissions..."} /></div>;
+  if (err) return <div className="assessment-panel-error"><UiText>{err}</UiText></div>;
 
-  const gradedCount = submissions.filter(isGraded).length;
+  const aiResultCount = submissions.filter(hasAiResult).length;
   const totalCount = submissions.length;
 
   return (
     <div className="assessment-panel">
       <div className="assessment-panel-header">
         <div className="assessment-panel-title">
-          <h2>Danh sách bài nói đã nộp</h2>
+          <h2><UiText text={"Kết quả AI của học viên được phân công"} /></h2>
           <span className="submission-count">
-            {filteredSubmissions.length} / {totalCount} bài
-          </span>
+            <UiText>{filteredSubmissions.length}</UiText> / <UiText>{totalCount}</UiText>{" "}<UiText text={"bài"} />{" "}</span>
         </div>
         <div className="assessment-panel-filter">
           <label className="filter-checkbox">
             <input
               type="checkbox"
-              checked={showGradedOnly}
-              onChange={(e) => setShowGradedOnly(e.target.checked)}
+              checked={showAiResultsOnly}
+              onChange={(e) => setShowAiResultsOnly(e.target.checked)}
             />
             <span className="filter-label">
-              <FiCheckCircle className="filter-icon" />
-              Đã chấm điểm ({gradedCount})
+              <FiCheckCircle className="filter-icon" />{" "}<UiText text={"Chỉ hiện bài đã có kết quả AI ("} /><UiText>{aiResultCount}</UiText>)
             </span>
           </label>
         </div>
@@ -119,50 +113,48 @@ export default function AssessmentPanel() {
 
       {filteredSubmissions.length === 0 ? (
         <div className="assessment-panel-empty">
-          <p>{showGradedOnly ? "Chưa có bài nào đã được chấm điểm." : "Chưa có bài nào được nộp."}</p>
+          <p><UiText>{showAiResultsOnly ? "Chưa có kết quả AI nào." : "Chưa có bài nộp của học viên được phân công."}</UiText></p>
         </div>
       ) : (
         <div className="submission-grid">
           {filteredSubmissions.map((s, idx) => {
-            const graded = isGraded(s);
+            const hasResult = hasAiResult(s);
             return (
               <div key={s.id} className="submission-card-item">
                 <div className="submission-card-number">
-                  <span className="card-number">{idx + 1}</span>
+                  <span className="card-number"><UiText>{idx + 1}</UiText></span>
                 </div>
                 <div className="submission-card-content">
                   <div className="submission-card-header">
                     <h3 className="submission-card-title">
                       {s.title || `Bài nộp #${s.id}`}
                     </h3>
-                    {graded && (
+                    {hasResult && (
                       <span className="submission-badge graded">
-                        <FiCheckCircle /> Đã chấm
-                      </span>
+                        <FiCheckCircle />{" "}<UiText text={"AI đã phân tích"} />{" "}</span>
                     )}
-                    {!graded && (
+                    {!hasResult && (
                       <span className="submission-badge pending">
-                        <FiClock /> Chưa chấm
-                      </span>
+                        <FiClock />{" "}<UiText text={"Đang chờ AI"} />{" "}</span>
                     )}
                   </div>
                   <div className="submission-card-info">
                     <div className="submission-info-row">
-                      <span className="info-label">Học viên:</span>
+                      <span className="info-label"><UiText text={"Học viên:"} /></span>
                       <span className="info-value">{s.learner_name || "N/A"}</span>
                     </div>
                     {s.created_at && (
                       <div className="submission-info-row">
-                        <span className="info-label">Ngày nộp:</span>
+                        <span className="info-label"><UiText text={"Ngày nộp:"} /></span>
                         <span className="info-value">
-                          {new Date(s.created_at).toLocaleDateString("vi-VN")}
+                          <UiText>{new Date(s.created_at).toLocaleDateString('en-GB')}</UiText>
                         </span>
                       </div>
                     )}
-                    {graded && s.final_score !== null && s.final_score !== undefined && (
+                    {hasResult && (
                       <div className="submission-info-row">
-                        <span className="info-label">Điểm:</span>
-                        <span className="info-value score">{(s.final_score / 10).toFixed(1)}/10</span>
+                        <span className="info-label"><UiText text={"Điểm AI:"} /></span>
+                        <span className="info-value score"><UiText>{Number(s.ai_assessment_contract.metrics.language_quality).toFixed(1)}</UiText>/100</span>
                       </div>
                     )}
                   </div>
@@ -171,8 +163,7 @@ export default function AssessmentPanel() {
                       className="btn-view-detail"
                       onClick={() => setSelectedId(s.id)}
                     >
-                      <FiEye /> Xem chi tiết
-                    </button>
+                      <FiEye />{" "}<UiText text={"Xem chi tiết"} />{" "}</button>
                   </div>
                 </div>
               </div>
@@ -189,16 +180,6 @@ export default function AssessmentPanel() {
             <AssessmentModal
               submissionId={selectedId}
               onClose={() => setSelectedId(null)}
-              onSaved={(review) => {
-                console.log("[AssessmentPanel] Review đã lưu:", review);
-                // Refresh submissions after saving
-                if (mentorId) {
-                  api.get(`/mentors/${mentorId}/submissions`)
-                    .then(res => setSubmissions(res.data.submissions || []))
-                    .catch(err => console.error("Error refreshing submissions:", err));
-                }
-                setSelectedId(null);
-              }}
             />
           </div>
         </div>

@@ -1,11 +1,13 @@
 {
-    "configurations": [
-        {
-            "name": "Containers: Node.js Launch",
-            "type": "docker",
-            "request": "launch",
-            "preLaunchTask": "docker-run: debug",
-            "platform": "node"
-        }
-    ]
+  "version":"0.2.0",
+  "configurations":[{
+    "name":"AESP: local services + frontend",
+    "type":"node",
+    "request":"launch",
+    "program":"${workspaceFolder}/backend/services/start-all-services.js",
+    "args":["--with-frontend"],
+    "cwd":"${workspaceFolder}",
+    "console":"integratedTerminal",
+    "skipFiles":["<node_internals>/**"]
+  }]
 }

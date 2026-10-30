@@ -1391,3 +1391,15 @@
   }
 }
 
+.communicate-center .post-actions .action-btn{min-height:40px;width:auto;min-width:108px;display:inline-flex;align-items:center;justify-content:center;gap:8px;flex-wrap:nowrap;line-height:1.2;white-space:nowrap;transform:none}
+.communicate-center .post-actions .action-btn svg,.comments-modal .action-btn svg,.community-comment-like svg{width:18px;height:18px;flex:0 0 18px;display:block}
+.communicate-center .post-actions .action-btn:disabled,.comments-modal button:disabled{opacity:.55;cursor:wait}
+.community-action-count{font-variant-numeric:tabular-nums;min-width:1ch}
+.community-comment-like{display:inline-flex;align-items:center;gap:5px;border:0;border-radius:6px;background:transparent;color:#61756d;padding:4px 6px;font:inherit;cursor:pointer}
+.community-comment-like.liked{color:#ce3659;background:#fff0f3}
+.community-action-error{padding:12px 16px;border-radius:10px;background:#fff1ef;color:#9e3f32}
+.communicate-center .action-btn:focus-visible,.community-comment-like:focus-visible{outline:2px solid #20816b;outline-offset:3px}
+/* Community tools must not inherit the 32px width + 32px padding combination from other pages. */
+.communicate-center .btn-icon,.comments-modal .btn-icon{box-sizing:border-box;min-width:36px;width:auto;min-height:36px;padding:8px;display:inline-flex;align-items:center;justify-content:center;gap:6px;color:#426c60;flex-shrink:0}
+.communicate-center .btn-icon svg,.comments-modal .btn-icon svg{display:block;min-width:18px;width:18px;height:18px;flex:0 0 18px}
+.comments-modal .btn-icon.recording{color:#dc2626;background:#fee2e2}

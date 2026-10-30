@@ -1,54 +1,14 @@
+import { UiOption } from '../../i18n/UiLanguage.jsx';
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 // frontend/src/components/mentor/MentorSchedules.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { getAuth } from "../../utils/auth";
 import api from "../../api";
 import { FiCalendar, FiClock, FiUser, FiVideo, FiPlus, FiEdit, FiTrash2, FiX, FiPause, FiCheckCircle, FiAlertCircle, FiSend } from "react-icons/fi";
 import "../../styles/mentor-schedules.css";
-
-// Helper: Lấy thứ 2 tuần tiếp theo (luôn là tuần sau, không bao giờ là tuần này)
-function getNextMonday() {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, ...
-  
-  // Tính số ngày đến thứ 2 tuần tiếp theo
-  // Nếu hôm nay là thứ 2 (1), thì tuần tiếp theo là thứ 2 tuần sau (7 ngày)
-  // Nếu hôm nay là thứ 3-7 (2-6), thì tuần tiếp theo là thứ 2 tuần sau (8 - dayOfWeek ngày)
-  // Nếu hôm nay là CN (0), thì tuần tiếp theo là thứ 2 tuần sau (8 ngày)
-  let daysUntilNextMonday;
-  if (dayOfWeek === 0) {
-    // CN: thứ 2 tuần sau là 8 ngày nữa
-    daysUntilNextMonday = 8;
-  } else if (dayOfWeek === 1) {
-    // Thứ 2: thứ 2 tuần sau là 7 ngày nữa
-    daysUntilNextMonday = 7;
-  } else {
-    // Thứ 3-7: thứ 2 tuần sau là (8 - dayOfWeek) ngày nữa
-    daysUntilNextMonday = 8 - dayOfWeek;
-  }
-  
-  const nextMonday = new Date(today);
-  nextMonday.setDate(today.getDate() + daysUntilNextMonday);
-  return nextMonday;
-}
-
-// Helper: Lấy chủ nhật tuần tiếp theo
-function getNextSunday() {
-  const nextMonday = getNextMonday();
-  const nextSunday = new Date(nextMonday);
-  nextSunday.setDate(nextMonday.getDate() + 6);
-  nextSunday.setHours(23, 59, 59, 999);
-  return nextSunday;
-}
-
-// Helper: Kiểm tra xem date có trong tuần tiếp theo không
-function isInNextWeek(date) {
-  const nextMonday = getNextMonday();
-  const nextSunday = getNextSunday();
-  const checkDate = new Date(date);
-  checkDate.setHours(0, 0, 0, 0);
-  return checkDate >= nextMonday && checkDate <= nextSunday;
-}
+import { nextMonday as getNextMonday, nextSunday as getNextSunday, localDateKey, scheduleDayRows, validateScheduleDraft, loadMentorScheduleData } from '../../utils/calendar.js';
+import { createScheduleBatch, summarizeScheduleBatch } from '../../utils/scheduleBatch.js';
 
 // Helper: Kiểm tra xem tuần đã qua chưa
 function isWeekPassed(weekStartDate) {
@@ -74,6 +34,10 @@ function getMondayOfWeek(date) {
 export default function MentorSchedules() {
   const auth = getAuth();
   const userId = auth?.user?.id ?? auth?.user?._id ?? auth?.user?.user_id ?? null;
+  return <MentorSchedulesView key={String(userId)} userId={userId} />;
+}
+
+function MentorSchedulesView({ userId }) {
   const [mentorId, setMentorId] = useState(null);
   const [schedules, setSchedules] = useState([]);
   const [learners, setLearners] = useState([]);
@@ -83,68 +47,48 @@ export default function MentorSchedules() {
   const [draftSchedules, setDraftSchedules] = useState([]);
   const [editingSchedule, setEditingSchedule] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [loadAttempt, setLoadAttempt] = useState(0);
+  const [loadError, setLoadError] = useState('');
+  const [saveNotice, setSaveNotice] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [draftOutcomes, setDraftOutcomes] = useState({});
+  const mutationBusyRef = useRef(false);
+  const mutationScopeRef = useRef(0);
+  const mutationAbortRef = useRef(null);
+  const createBatchRef = useRef(null);
+  const updateBatchRef = useRef(null);
 
   useEffect(() => {
+    mutationScopeRef.current++; mutationAbortRef.current = new AbortController();
+    createBatchRef.current = createScheduleBatch((item, options) => api.post(item.url, item.payload, options));
+    updateBatchRef.current = createScheduleBatch((item, options) => api.put(item.url, item.payload, options));
+    mutationBusyRef.current = false; setSaving(false); setDraftSchedules([]); setDraftOutcomes({});
+    setEditingSchedule(null); setShowEditModal(false); setSaveNotice('');
+    return () => { mutationScopeRef.current++; mutationAbortRef.current?.abort(); };
+  }, [userId]);
+
+  useEffect(() => {
+    const controller = new AbortController(); const { signal } = controller;
+    setMentorId(null); setLearners([]); setSchedules([]); setLoadError('');
     if (!userId) {
       setLoading(false);
-      return;
+      return () => controller.abort();
     }
-    loadData();
-  }, [userId, currentWeek]);
-
-  const loadData = async () => {
-    try {
-      setLoading(true);
-      
-      // Get mentor ID
-      const mentorRes = await api.get(`/mentors/by-user/${userId}`);
-      const mid = mentorRes.data?.mentor_id ?? mentorRes.data?.id ?? null;
-      
-      if (!mid) {
-        setLoading(false);
-        return;
-      }
-      
-      setMentorId(mid);
-      
-      // Load learners and schedules
-      const weekStart = new Date(currentWeek);
-      weekStart.setHours(0, 0, 0, 0);
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekStart.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-      
-      const [learnersRes, schedulesRes] = await Promise.all([
-        api.get(`/mentors/${mid}/learners`),
-        api.get(`/mentors/${mid}/schedules`, {
-          params: {
-            startDate: weekStart.toISOString(),
-            endDate: weekEnd.toISOString()
-          }
-        })
-      ]);
-      
-      // Map learners giống như MentorLearners.jsx
-      const learnersData = learnersRes.data?.learners || learnersRes.data || [];
-      setLearners(learnersData.map(learner => ({
-        ...learner,
-        id: learner.learner_id || learner.id,
-        full_name: learner.learner_name || learner.name || learner.full_name
-      })));
-      setSchedules(schedulesRes.data || []);
-    } catch (err) {
-      console.error("Error loading data:", err);
-    } finally {
-      setLoading(false);
-    }
-  };
+    setLoading(true);
+    loadMentorScheduleData(api, { userId, week: currentWeek, signal }).then(result => {
+      if (!signal.aborted) { setMentorId(result.mentorId); setLearners(result.learners); setSchedules(result.schedules); }
+    }).catch(() => { if (!signal.aborted) setLoadError('Không thể tải lịch/học viên. Vui lòng thử lại.'); })
+      .finally(() => { if (!signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [userId, currentWeek, loadAttempt]);
 
   const addDraftSchedule = () => {
+    if (mutationBusyRef.current) return;
     const nextMonday = getNextMonday();
     const newDraft = {
-      id: Date.now(), // Temporary ID
+      id: crypto.randomUUID(), // Form identity only; never a database ID.
       title: "",
-      date: nextMonday.toISOString().split('T')[0],
+      date: localDateKey(nextMonday),
       startTime: "",
       endTime: "",
       type: "online",
@@ -155,44 +99,23 @@ export default function MentorSchedules() {
   };
 
   const updateDraftSchedule = (id, field, value) => {
+    if (mutationBusyRef.current || createBatchRef.current?.locked(id)) return;
     setDraftSchedules(prev => prev.map(draft => 
       draft.id === id ? { ...draft, [field]: value } : draft
     ));
   };
 
   const removeDraftSchedule = (id) => {
+    if (mutationBusyRef.current) return;
     setDraftSchedules(draftSchedules.filter(draft => draft.id !== id));
   };
 
   const validateDraftSchedule = (draft) => {
-    if (!draft.title || draft.title.trim() === "") return "Chưa nhập tiêu đề";
-    if (!draft.date) return "Chưa chọn ngày";
-    if (!isInNextWeek(draft.date)) return "Ngày phải trong tuần tiếp theo";
-    if (!draft.startTime) return "Chưa chọn giờ bắt đầu";
-    if (!draft.endTime) return "Chưa chọn giờ kết thúc";
-    
-    const startHour = parseInt(draft.startTime.split(':')[0]);
-    const endHour = parseInt(draft.endTime.split(':')[0]);
-    if (startHour < 8 || startHour >= 21 || endHour < 8 || endHour > 21) {
-      return "Giờ học phải trong khoảng 8h-21h";
-    }
-    
-    const start = new Date(`${draft.date}T${draft.startTime}`);
-    const end = new Date(`${draft.date}T${draft.endTime}`);
-    if (start >= end) {
-      return "Giờ bắt đầu phải nhỏ hơn giờ kết thúc";
-    }
-    
-    // Link meeting không bắt buộc, có thể để trống và chỉnh sau
-    // if (draft.type === "online" && !draft.meetingLink) {
-    //   return "Lịch online phải có link meeting";
-    // }
-    
-    return null;
+    return validateScheduleDraft(draft);
   };
 
   const handleSubmitAll = async () => {
-    if (!mentorId) return;
+    if (!mentorId || mutationBusyRef.current) return;
     
     // Validate all drafts
     const errors = [];
@@ -209,18 +132,20 @@ export default function MentorSchedules() {
     }
     
     if (draftSchedules.length === 0) {
-      alert("Chưa có lịch học nào để gửi");
+      alert(englishText("Chưa có lịch học nào để gửi"));
       return;
     }
     
     if (learners.length === 0) {
-      alert("Bạn chưa có học viên nào. Vui lòng liên hệ admin để được gán học viên.");
+      alert(englishText("Bạn chưa có học viên nào. Vui lòng liên hệ admin để được gán học viên."));
       return;
     }
     
+    mutationBusyRef.current = true; setSaving(true); setSaveNotice('');
+    const scope = mutationScopeRef.current;
     try {
       // Tạo lịch cho TẤT CẢ learners của mentor
-      const promises = [];
+      const items = [];
       
       draftSchedules.forEach(draft => {
         // Tạo date string với local time để tránh lỗi timezone
@@ -242,36 +167,45 @@ export default function MentorSchedules() {
             notes: ""
           };
           
-          promises.push(api.post(`/mentors/${mentorId}/schedules`, payload));
+          items.push({ key: `${draft.id}:${payload.learnerId}`, group: draft.id,
+            url: `/mentors/${mentorId}/schedules`, payload,
+            expectedLearnerId: payload.learnerId, expectedMentorId: mentorId });
         });
       });
       
-      await Promise.all(promises);
-      setDraftSchedules([]);
-      loadData();
-      alert(`Đã tạo lịch học thành công cho ${learners.length} học viên!`);
+      const outcomes = await createBatchRef.current.run(items, { signal: mutationAbortRef.current.signal });
+      if (!outcomes || mutationScopeRef.current !== scope) return;
+      const counts = summarizeScheduleBatch(outcomes);
+      const perDraft = Object.fromEntries(draftSchedules.map(draft => [draft.id, summarizeScheduleBatch(outcomes.filter(row => row.group === draft.id))]));
+      setDraftOutcomes(perDraft);
+      setDraftSchedules(previous => previous.filter(draft => {
+        const result = perDraft[draft.id];
+        return !result || !result.saved || result.failed > 0 || result.unknown > 0 || result.pending > 0;
+      }));
+      setSaveNotice(`Đã lưu ${counts.saved} lịch; ${counts.failed} bị từ chối; ${counts.unknown} chưa xác nhận; ${counts.pending || 0} chưa gửi. Các lịch đã lưu/chưa xác nhận không được gửi lại. Hãy kiểm tra lịch trước khi tạo mới.`);
+      setLoadAttempt(value => value + 1);
     } catch (err) {
-      console.error("Error saving schedules:", err);
-      const errorMsg = err.response?.data?.error || "Có lỗi xảy ra. Vui lòng thử lại.";
-      alert(errorMsg);
-    }
+      if (mutationScopeRef.current === scope) setSaveNotice('Chưa xác nhận được kết quả. Hãy kiểm tra lịch trước khi thử lại.');
+    } finally { if (mutationScopeRef.current === scope) { mutationBusyRef.current = false; setSaving(false); } }
   };
 
   const handleEdit = (schedule) => {
+    if (mutationBusyRef.current) return;
+    updateBatchRef.current = createScheduleBatch((item, options) => api.put(item.url, item.payload, options));
     // Tìm tất cả lịch có cùng title, date, time để edit cùng lúc
     const scheduleDate = new Date(schedule.start_time);
-    const dateStr = scheduleDate.toISOString().split('T')[0];
+    const dateStr = localDateKey(scheduleDate);
     const startTime = scheduleDate.toTimeString().slice(0, 5);
     const endTime = new Date(schedule.end_time).toTimeString().slice(0, 5);
     
     const matchingSchedules = schedules.filter(s => {
-      const sDate = new Date(s.start_time).toISOString().split('T')[0];
+      const sDate = localDateKey(s.start_time);
       const sStartTime = new Date(s.start_time).toTimeString().slice(0, 5);
       const sEndTime = new Date(s.end_time).toTimeString().slice(0, 5);
       return s.title === schedule.title && 
              sDate === dateStr && 
              sStartTime === startTime && 
-             sEndTime === endTime;
+             sEndTime === endTime && s.type === schedule.type && s.meeting_link === schedule.meeting_link && s.is_exam === schedule.is_exam;
     });
     
     // Set thông tin để chỉnh sửa
@@ -289,51 +223,18 @@ export default function MentorSchedules() {
   };
 
   const handleUpdateSchedule = async () => {
-    if (!editingSchedule || !mentorId) return;
-    
-    // Validate
-    if (!editingSchedule.title || editingSchedule.title.trim() === "") {
-      alert("Chưa nhập tiêu đề");
-      return;
-    }
-    if (!editingSchedule.date) {
-      alert("Chưa chọn ngày");
-      return;
-    }
-    if (!isInNextWeek(editingSchedule.date)) {
-      alert("Ngày phải trong tuần tiếp theo");
-      return;
-    }
-    if (!editingSchedule.startTime) {
-      alert("Chưa chọn giờ bắt đầu");
-      return;
-    }
-    if (!editingSchedule.endTime) {
-      alert("Chưa chọn giờ kết thúc");
-      return;
-    }
-    
-    const startHour = parseInt(editingSchedule.startTime.split(':')[0]);
-    const endHour = parseInt(editingSchedule.endTime.split(':')[0]);
-    if (startHour < 8 || startHour >= 21 || endHour < 8 || endHour > 21) {
-      alert("Giờ học phải trong khoảng 8h-21h");
-      return;
-    }
-    
-    const start = new Date(`${editingSchedule.date}T${editingSchedule.startTime}`);
-    const end = new Date(`${editingSchedule.date}T${editingSchedule.endTime}`);
-    if (start >= end) {
-      alert("Giờ bắt đầu phải nhỏ hơn giờ kết thúc");
-      return;
-    }
-    
+    if (!editingSchedule || !mentorId || mutationBusyRef.current) return;
+    const validationError = validateScheduleDraft(editingSchedule);
+    if (validationError) { alert(validationError); return; }
+    mutationBusyRef.current = true; setSaving(true); setSaveNotice('');
+    const scope = mutationScopeRef.current;
     try {
       // Cập nhật tất cả các lịch có cùng title/date/time
       const dateStr = editingSchedule.date;
       const startDateTimeStr = `${dateStr}T${editingSchedule.startTime}:00`;
       const endDateTimeStr = `${dateStr}T${editingSchedule.endTime}:00`;
       
-      const promises = editingSchedule.scheduleIds.map(scheduleId => {
+      const items = editingSchedule.scheduleIds.map(scheduleId => {
         const payload = {
           title: editingSchedule.title.trim(),
           description: "",
@@ -345,81 +246,57 @@ export default function MentorSchedules() {
           notes: ""
         };
         
-        return api.put(`/mentors/schedules/${scheduleId}`, payload);
+        return { key: String(scheduleId), group: 'update', url: `/mentors/schedules/${scheduleId}`, payload, expectedId: scheduleId };
       });
       
-      await Promise.all(promises);
-      setShowEditModal(false);
-      setEditingSchedule(null);
-      loadData();
-      alert("Đã cập nhật lịch học thành công!");
+      const outcomes = await updateBatchRef.current.run(items, { signal: mutationAbortRef.current.signal });
+      if (!outcomes || mutationScopeRef.current !== scope) return;
+      const counts = summarizeScheduleBatch(outcomes);
+      if (counts.saved === items.length) { setShowEditModal(false); setEditingSchedule(null); }
+      setSaveNotice(`Cập nhật: ${counts.saved} đã lưu; ${counts.failed} bị từ chối; ${counts.unknown} chưa xác nhận; ${counts.pending || 0} chưa gửi. Hãy kiểm tra lịch trước khi thay đổi tiếp.`);
+      setLoadAttempt(value => value + 1);
     } catch (err) {
-      console.error("Error updating schedules:", err);
-      const errorMsg = err.response?.data?.error || "Có lỗi xảy ra. Vui lòng thử lại.";
-      alert(errorMsg);
-    }
+      if (mutationScopeRef.current === scope) setSaveNotice('Chưa xác nhận được cập nhật. Hãy kiểm tra lịch trước khi thử lại.');
+    } finally { if (mutationScopeRef.current === scope) { mutationBusyRef.current = false; setSaving(false); } }
   };
 
   const handlePause = async (scheduleId) => {
-    if (!confirm("Bạn có chắc muốn tạm ngưng lịch học này?")) return;
-
+    if (mutationBusyRef.current) return;
+    if (!confirm(englishText("Bạn có chắc muốn tạm ngưng lịch học này?"))) return;
+    mutationBusyRef.current = true; setSaving(true); setSaveNotice('');
+    const scope = mutationScopeRef.current;
     try {
-      await api.put(`/mentors/schedules/${scheduleId}`, { status: "paused" });
-      loadData();
+      await api.put(`/mentors/schedules/${scheduleId}`, { status: "paused" }, { signal: mutationAbortRef.current.signal });
+      if (mutationScopeRef.current !== scope) return;
+      setSaveNotice('Đã tạm ngưng lịch đã chọn.'); setLoadAttempt(value => value + 1);
     } catch (err) {
-      console.error("Error pausing schedule:", err);
-      alert("Có lỗi xảy ra. Vui lòng thử lại.");
-    }
+      if (mutationScopeRef.current === scope) setSaveNotice('Chưa xác nhận được thao tác tạm ngưng. Hãy tải lại lịch để kiểm tra.');
+    } finally { if (mutationScopeRef.current === scope) { mutationBusyRef.current = false; setSaving(false); } }
   };
 
   const handleDelete = async (scheduleId) => {
-    if (!confirm("Bạn có chắc muốn xóa lịch học này?")) return;
-
+    if (mutationBusyRef.current) return;
+    if (!confirm(englishText("Bạn có chắc muốn xóa lịch học này?"))) return;
+    mutationBusyRef.current = true; setSaving(true); setSaveNotice('');
+    const scope = mutationScopeRef.current;
     try {
-      await api.delete(`/mentors/schedules/${scheduleId}`);
-      loadData();
+      await api.delete(`/mentors/schedules/${scheduleId}`, { signal: mutationAbortRef.current.signal });
+      if (mutationScopeRef.current !== scope) return;
+      setSaveNotice('Đã xóa lịch đã chọn.'); setLoadAttempt(value => value + 1);
     } catch (err) {
-      console.error("Error deleting schedule:", err);
-      alert("Có lỗi xảy ra. Vui lòng thử lại.");
-    }
+      if (mutationScopeRef.current === scope) setSaveNotice('Chưa xác nhận được thao tác xóa. Hãy tải lại lịch để kiểm tra.');
+    } finally { if (mutationScopeRef.current === scope) { mutationBusyRef.current = false; setSaving(false); } }
   };
 
   // Lấy lịch theo ngày trong tuần (group theo title/date/time để chỉ hiện 1 lịch)
   const getSchedulesByDate = (date) => {
     if (!date) return [];
-    
-    // Lấy ngày local (YYYY-MM-DD) để so sánh
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-    
-    const schedulesForDate = schedules.filter(s => {
-      // Lấy date từ string trực tiếp để tránh lỗi timezone
-      // start_time có format: "2025-11-25T08:40:00" hoặc "2025-11-25T08:40:00.000Z"
-      const startTimeStr = s.start_time;
-      let scheduleDateStr;
-      
-      if (typeof startTimeStr === 'string') {
-        // Lấy phần date (YYYY-MM-DD) từ string
-        const datePart = startTimeStr.split('T')[0];
-        scheduleDateStr = datePart;
-      } else {
-        // Fallback: dùng Date object
-        const scheduleDate = new Date(startTimeStr);
-        const sYear = scheduleDate.getFullYear();
-        const sMonth = String(scheduleDate.getMonth() + 1).padStart(2, '0');
-        const sDay = String(scheduleDate.getDate()).padStart(2, '0');
-        scheduleDateStr = `${sYear}-${sMonth}-${sDay}`;
-      }
-      
-      return scheduleDateStr === dateStr;
-    });
+    const schedulesForDate = scheduleDayRows(schedules, date);
     
     // Group theo title, date, start_time, end_time để chỉ hiện 1 lịch cho tất cả học viên
     const grouped = {};
     schedulesForDate.forEach(s => {
-      const key = `${s.title}_${s.start_time}_${s.end_time}`;
+      const key = JSON.stringify([s.title, s.start_time, s.end_time, s.type, s.meeting_link, s.is_exam, s.status]);
       if (!grouped[key]) {
         grouped[key] = s; // Lấy lịch đầu tiên làm đại diện
       }
@@ -484,7 +361,7 @@ export default function MentorSchedules() {
 
   const formatTime = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   };
 
   const weekPassed = isWeekPassed(currentWeek);
@@ -492,38 +369,41 @@ export default function MentorSchedules() {
   if (loading) {
     return (
       <div className="mentor-schedules">
-        <div className="loading-state">Đang tải...</div>
+        <div className="loading-state"><UiText text={"Đang tải..."} /></div>
       </div>
     );
   }
 
+  if (loadError) return <div className="mentor-schedules"><p role="alert"><UiText>{loadError}</UiText></p>{saveNotice && <p role="status"><UiText>{saveNotice}</UiText></p>}<button onClick={() => setLoadAttempt(value => value + 1)}><UiText text={"Thử lại"} /></button></div>;
+
   if (!mentorId) {
     return (
       <div className="mentor-schedules">
-        <div className="error-state">Không tìm thấy thông tin mentor</div>
+        <div className="error-state"><UiText text={"Không tìm thấy thông tin mentor"} /></div>
       </div>
     );
   }
 
   return (
     <div className="mentor-schedules">
+      {saveNotice && <p role="status"><UiText>{saveNotice}</UiText></p>}
       <div className="schedules-header">
         <h2>
-          <FiCalendar /> Quản lý lịch học
-        </h2>
+          <FiCalendar />{" "}<UiText text={"Quản lý lịch học"} />{" "}</h2>
         <div className="header-actions">
           <button 
             className="btn-secondary" 
+            disabled={saving}
             onClick={() => setShowCalendar(!showCalendar)}
           >
-            <FiCalendar /> {showCalendar ? "Ẩn lịch" : "Xem lịch dạy"}
+            <FiCalendar /> <UiText>{showCalendar ? "Ẩn lịch" : "Xem lịch dạy"}</UiText>
           </button>
         </div>
       </div>
 
       {learners.length === 0 ? (
         <div className="empty-state">
-          <p>Bạn chưa có học viên nào. Vui lòng liên hệ admin để được gán học viên.</p>
+          <p><UiText text={"Bạn chưa có học viên nào. Vui lòng liên hệ admin để được gán học viên."} /></p>
         </div>
       ) : (
         <>
@@ -532,18 +412,15 @@ export default function MentorSchedules() {
             <div className="inline-schedule-form">
               <div className="form-section-header">
                 <div>
-                  <h3>Tạo lịch học mới</h3>
-                  <p className="form-section-note">
-                    Lịch học sẽ được tạo cho tất cả {learners.length} học viên được gán với bạn
-                  </p>
+                  <h3><UiText text={"Tạo lịch học mới"} /></h3>
+                  <p className="form-section-note">{" "}<UiText text={"Lịch học sẽ được tạo cho tất cả"} />{" "}<UiText>{learners.length}</UiText>{" "}<UiText text={"học viên được gán với bạn"} />{" "}</p>
                 </div>
                 <div className="form-section-actions">
-                  <button className="btn-secondary" onClick={addDraftSchedule}>
-                    <FiPlus /> Thêm lịch học
-                  </button>
+                  <button className="btn-secondary" onClick={addDraftSchedule} disabled={saving}>
+                    <FiPlus />{" "}<UiText text={"Thêm lịch học"} />{" "}</button>
                   {draftSchedules.length > 0 && (
-                    <button className="btn-primary" onClick={handleSubmitAll}>
-                      <FiSend /> Gửi lịch ({draftSchedules.length})
+                    <button className="btn-primary" onClick={handleSubmitAll} disabled={saving}>
+                      <FiSend />{" "}<UiText text={"Gửi lịch ("} /><UiText>{draftSchedules.length}</UiText>)
                     </button>
                   )}
                 </div>
@@ -551,28 +428,28 @@ export default function MentorSchedules() {
 
               {draftSchedules.length === 0 ? (
                 <div className="empty-draft-message">
-                  <p>Nhấn "Thêm lịch học" để bắt đầu tạo lịch học mới</p>
+                  <p><UiText text={"Nhấn \"Thêm lịch học\" để bắt đầu tạo lịch học mới"} /></p>
                 </div>
               ) : (
                 <div className="draft-schedules-table">
                   <div className="table-header">
-                    <div className="col-title">Tiêu đề *</div>
-                    <div className="col-date">Ngày *</div>
-                    <div className="col-time">Giờ bắt đầu *</div>
-                    <div className="col-time">Giờ kết thúc *</div>
-                    <div className="col-type">Loại *</div>
-                    <div className="col-link">Link (nếu online)</div>
-                    <div className="col-exam">Lịch thi</div>
-                    <div className="col-actions">Thao tác</div>
+                    <div className="col-title"><UiText text={"Tiêu đề *"} /></div>
+                    <div className="col-date"><UiText text={"Ngày *"} /></div>
+                    <div className="col-time"><UiText text={"Giờ bắt đầu *"} /></div>
+                    <div className="col-time"><UiText text={"Giờ kết thúc *"} /></div>
+                    <div className="col-type"><UiText text={"Loại *"} /></div>
+                    <div className="col-link"><UiText text={"Link (nếu online)"} /></div>
+                    <div className="col-exam"><UiText text={"Lịch thi"} /></div>
+                    <div className="col-actions"><UiText text={"Thao tác"} /></div>
                   </div>
                   {draftSchedules.map((draft) => (
-                    <div key={draft.id} className="table-row">
+                    <fieldset key={draft.id} className="table-row" disabled={saving || createBatchRef.current?.locked(draft.id)} style={{ border: 0, margin: 0, minWidth: 0 }}>
                       <div className="col-title">
                         <input
                           type="text"
                           value={draft.title}
                           onChange={(e) => updateDraftSchedule(draft.id, 'title', e.target.value)}
-                          placeholder="Tiêu đề lịch học"
+                          placeholder={englishText("Tiêu đề lịch học")}
                           className="form-input"
                         />
                       </div>
@@ -581,8 +458,8 @@ export default function MentorSchedules() {
                           type="date"
                           value={draft.date}
                           onChange={(e) => updateDraftSchedule(draft.id, 'date', e.target.value)}
-                          min={getNextMonday().toISOString().split('T')[0]}
-                          max={getNextSunday().toISOString().split('T')[0]}
+                          min={localDateKey(getNextMonday())}
+                          max={localDateKey(getNextSunday())}
                           className="form-input"
                         />
                       </div>
@@ -624,8 +501,8 @@ export default function MentorSchedules() {
                           }}
                           className="form-input"
                         >
-                          <option value="online">Online</option>
-                          <option value="offline">Offline</option>
+                          <UiOption value="online">{"Online"}</UiOption>
+                          <UiOption value="offline">{"Offline"}</UiOption>
                         </select>
                       </div>
                       <div className="col-link">
@@ -634,7 +511,7 @@ export default function MentorSchedules() {
                             type="url"
                             value={draft.meetingLink}
                             onChange={(e) => updateDraftSchedule(draft.id, 'meetingLink', e.target.value)}
-                            placeholder="Có thể để trống, chỉnh sau..."
+                            placeholder={englishText("Có thể để trống, chỉnh sau...")}
                             className="form-input"
                           />
                         ) : (
@@ -657,7 +534,8 @@ export default function MentorSchedules() {
                           <FiTrash2 />
                         </button>
                       </div>
-                    </div>
+                      {draftOutcomes[draft.id] && <small role="status" style={{ gridColumn: '1 / -1' }}>{" "}<UiText text={"Đã lưu"} />{" "}<UiText>{draftOutcomes[draft.id].saved}</UiText><UiText text={"; bị từ chối"} />{" "}<UiText>{draftOutcomes[draft.id].failed}</UiText><UiText text={"; chưa xác nhận"} />{" "}<UiText>{draftOutcomes[draft.id].unknown}</UiText><UiText text={"; chưa gửi"} />{" "}<UiText>{draftOutcomes[draft.id].pending || 0}</UiText><UiText text={". Không gửi lại phần đã lưu/chưa xác nhận; hãy kiểm tra lịch."} />{" "}</small>}
+                    </fieldset>
                   ))}
                 </div>
               )}
@@ -670,28 +548,25 @@ export default function MentorSchedules() {
               <div className="week-header">
                 <button 
                   className="btn-nav"
+                  disabled={saving}
                   onClick={() => {
                     const prevWeek = new Date(currentWeek);
                     prevWeek.setDate(prevWeek.getDate() - 7);
                     setCurrentWeek(prevWeek);
                   }}
-                >
-                  ← Tuần trước
-                </button>
-                <h3>
-                  Tuần {currentWeek.toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric' })} - 
-                  {new Date(currentWeek.getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString('vi-VN', { day: 'numeric', month: 'numeric', year: 'numeric' })}
+                >{" "}<UiText text={"← Tuần trước"} />{" "}</button>
+                <h3>{" "}<UiText text={"Tuần"} />{" "}<UiText>{currentWeek.toLocaleDateString('en-GB', { day: 'numeric', month: 'numeric' })}</UiText> -
+                  <UiText>{new Date(currentWeek.getTime() + 6 * 24 * 60 * 60 * 1000).toLocaleDateString('en-GB', { day: 'numeric', month: 'numeric', year: 'numeric' })}</UiText>
                 </h3>
                 <button 
                   className="btn-nav"
+                  disabled={saving}
                   onClick={() => {
                     const nextWeek = new Date(currentWeek);
                     nextWeek.setDate(nextWeek.getDate() + 7);
                     setCurrentWeek(nextWeek);
                   }}
-                >
-                  Tuần sau →
-                </button>
+                >{" "}<UiText text={"Tuần sau →"} />{" "}</button>
               </div>
 
               <div className="week-grid">
@@ -705,8 +580,8 @@ export default function MentorSchedules() {
                   return (
                     <div key={idx} className="week-day">
                       <div className="day-header">
-                        <div className="day-name">{dayName}</div>
-                        <div className="day-number">{day.getDate()}</div>
+                        <div className="day-name"><UiText>{dayName}</UiText></div>
+                        <div className="day-number"><UiText>{day.getDate()}</UiText></div>
                       </div>
                       <div className="day-schedules">
                         {daySchedules.map((schedule) => {
@@ -722,31 +597,31 @@ export default function MentorSchedules() {
                               style={{ borderLeftColor: getScheduleColor(schedule) }}
                             >
                               <div className="schedule-time">
-                                {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                                <UiText>{formatTime(schedule.start_time)}</UiText> - <UiText>{formatTime(schedule.end_time)}</UiText>
                               </div>
                               <div className="schedule-title">{schedule.title}</div>
                               {schedule.is_exam && (
                                 <div className="exam-badge">
-                                  <FiAlertCircle /> Lịch thi
-                                </div>
+                                  <FiAlertCircle />{" "}<UiText text={"Lịch thi"} />{" "}</div>
                               )}
                               {isPaused && (
                                 <div className="exam-badge" style={{ backgroundColor: '#f59e0b', color: '#fff' }}>
-                                  <FiPause /> Tạm ngưng
-                                </div>
+                                  <FiPause />{" "}<UiText text={"Tạm ngưng"} />{" "}</div>
                               )}
-                              <div className="schedule-type">{schedule.type === 'online' ? '🌐 Online' : '🏠 Offline'}</div>
+                              <div className="schedule-type"><UiText>{schedule.type === 'online' ? '🌐 Online' : '🏠 Offline'}</UiText></div>
                               {canModify ? (
                                 <div className="schedule-actions">
                                   <button 
                                     className="btn-icon-small"
+                                    disabled={saving}
                                     onClick={() => handleEdit(schedule)}
-                                    title="Chỉnh sửa"
+                                    title={englishText("Chỉnh sửa")}
                                   >
                                     <FiEdit />
                                   </button>
                                   <button 
                                     className="btn-icon-small btn-danger"
+                                    disabled={saving}
                                     onClick={() => handleDelete(schedule.id)}
                                     title="Xóa"
                                   >
@@ -759,11 +634,11 @@ export default function MentorSchedules() {
                                 !isPaused && (
                                   <button 
                                     className="btn-pause"
+                                    disabled={saving}
                                     onClick={() => handlePause(schedule.id)}
-                                    title="Tạm ngưng"
+                                    title={englishText("Tạm ngưng")}
                                   >
-                                    <FiPause /> Tạm ngưng
-                                  </button>
+                                    <FiPause />{" "}<UiText text={"Tạm ngưng"} />{" "}</button>
                                 )
                               )}
                             </div>
@@ -781,43 +656,44 @@ export default function MentorSchedules() {
 
       {/* Edit Modal */}
       {showEditModal && editingSchedule && (
-        <div className="modal-overlay" onClick={() => { setShowEditModal(false); setEditingSchedule(null); }}>
+        <div className="modal-overlay" onClick={() => { if (!saving) { setShowEditModal(false); setEditingSchedule(null); } }}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Chỉnh sửa lịch học</h3>
-              <button className="btn-close" onClick={() => { setShowEditModal(false); setEditingSchedule(null); }}>
+              <h3><UiText text={"Chỉnh sửa lịch học"} /></h3>
+              <button className="btn-close" disabled={saving} onClick={() => { setShowEditModal(false); setEditingSchedule(null); }}>
                 <FiX />
               </button>
             </div>
 
             <div className="schedule-form">
+              <fieldset disabled={saving || updateBatchRef.current?.locked('update')} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
               <div className="form-group">
-                <label>Tiêu đề *</label>
+                <label><UiText text={"Tiêu đề *"} /></label>
                 <input
                   type="text"
                   value={editingSchedule.title}
                   onChange={(e) => setEditingSchedule({ ...editingSchedule, title: e.target.value })}
                   required
-                  placeholder="Tiêu đề lịch học"
+                  placeholder={englishText("Tiêu đề lịch học")}
                 />
               </div>
 
               <div className="form-group">
-                <label>Ngày học *</label>
+                <label><UiText text={"Ngày học *"} /></label>
                 <input
                   type="date"
                   value={editingSchedule.date}
                   onChange={(e) => setEditingSchedule({ ...editingSchedule, date: e.target.value })}
                   required
-                  min={getNextMonday().toISOString().split('T')[0]}
-                  max={getNextSunday().toISOString().split('T')[0]}
+                  min={localDateKey(getNextMonday())}
+                  max={localDateKey(getNextSunday())}
                 />
-                <small>Chỉ được chọn ngày trong tuần tiếp theo</small>
+                <small><UiText text={"Chỉ được chọn ngày trong tuần tiếp theo"} /></small>
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Giờ bắt đầu * (8h-21h)</label>
+                  <label><UiText text={"Giờ bắt đầu * (8h-21h)"} /></label>
                   <input
                     type="time"
                     value={editingSchedule.startTime}
@@ -829,7 +705,7 @@ export default function MentorSchedules() {
                 </div>
 
                 <div className="form-group">
-                  <label>Giờ kết thúc * (8h-21h)</label>
+                  <label><UiText text={"Giờ kết thúc * (8h-21h)"} /></label>
                   <input
                     type="time"
                     value={editingSchedule.endTime}
@@ -843,7 +719,7 @@ export default function MentorSchedules() {
 
               <div className="form-row">
                 <div className="form-group">
-                  <label>Loại *</label>
+                  <label><UiText text={"Loại *"} /></label>
                   <select
                     value={editingSchedule.type}
                     onChange={(e) => {
@@ -855,8 +731,8 @@ export default function MentorSchedules() {
                     }}
                     required
                   >
-                    <option value="online">Online</option>
-                    <option value="offline">Offline</option>
+                    <UiOption value="online">{"Online"}</UiOption>
+                    <UiOption value="offline">{"Offline"}</UiOption>
                   </select>
                 </div>
 
@@ -867,14 +743,13 @@ export default function MentorSchedules() {
                       checked={editingSchedule.isExam}
                       onChange={(e) => setEditingSchedule({ ...editingSchedule, isExam: e.target.checked })}
                     />
-                    {" "}Lịch thi định kỳ
-                  </label>
+                    {" "}<UiText text={"Lịch thi định kỳ"} />{" "}</label>
                 </div>
               </div>
 
               {editingSchedule.type === "online" && (
                 <div className="form-group">
-                  <label>Link meeting (có thể để trống, chỉnh sau)</label>
+                  <label><UiText text={"Link meeting (có thể để trống, chỉnh sau)"} /></label>
                   <input
                     type="url"
                     value={editingSchedule.meetingLink}
@@ -884,13 +759,10 @@ export default function MentorSchedules() {
                 </div>
               )}
 
+              </fieldset>
               <div className="form-actions">
-                <button type="button" className="btn-secondary" onClick={() => { setShowEditModal(false); setEditingSchedule(null); }}>
-                  Hủy
-                </button>
-                <button type="button" className="btn-primary" onClick={handleUpdateSchedule}>
-                  Cập nhật
-                </button>
+                <button type="button" className="btn-secondary" disabled={saving} onClick={() => { setShowEditModal(false); setEditingSchedule(null); }}>{" "}<UiText text={"Hủy"} />{" "}</button>
+                <button type="button" className="btn-primary" disabled={saving} onClick={handleUpdateSchedule}>{" "}<UiText text={"Cập nhật"} />{" "}</button>
               </div>
             </div>
           </div>

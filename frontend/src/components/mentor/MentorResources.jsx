@@ -1,3 +1,6 @@
+import { UiOption } from '../../i18n/UiLanguage.jsx';
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿import { useEffect, useState } from "react";
 import { getAuth } from "../../utils/auth";
 import "../../styles/resources.css";
@@ -5,36 +8,45 @@ import api from "../../api";
 import Modal from "../common/Modal";
 import PDFPreview from "../common/PDFPreview";
 import { normalizeVideoUrl } from "../../utils/apiHelpers";
+import { AuthenticatedMedia } from "../../utils/authenticatedMedia.jsx";
 import { FiFileText, FiVideo, FiPlus, FiX, FiEdit2, FiTrash2, FiEye, FiEyeOff } from "react-icons/fi";
 
 export default function MentorResources() {
   const auth = getAuth();
+  const userId = auth?.user?.id ?? auth?.user?._id ?? auth?.user?.user_id;
   const [mentorId, setMentorId] = useState(null);
   const [resources, setResources] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [showModal, setShowModal] = useState(false);
   const [editingResource, setEditingResource] = useState(null);
   const [selectedResource, setSelectedResource] = useState(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true); setLoadError(''); setResources([]); setMentorId(null);
     async function fetchResources() {
       try {
-        const userId = auth?.user?._id || auth?.user?.id || auth?.user?.user_id;
-        const mentorRes = await api.get(`/mentors/by-user/${userId}`);
+        if (!userId) throw Error('Missing account');
+        const mentorRes = await api.get(`/mentors/by-user/${userId}`, {signal:controller.signal});
         const mid = mentorRes.data.mentor_id || mentorRes.data.id;
+        if (!mid) throw Error('Missing Mentor');
         setMentorId(mid);
 
-        const res = await api.get(`/mentors/${mid}/resources`);
+        const res = await api.get(`/mentors/${mid}/resources`, {signal:controller.signal});
+        if (controller.signal.aborted) return;
         setResources(res.data.resources || []);
       } catch (err) {
-        console.error("❌ Error fetching resources:", err);
+        if (!controller.signal.aborted) setLoadError('Unable to load resources. Please try again.');
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
     fetchResources();
-  }, [auth]);
+    return () => controller.abort();
+  }, [userId, loadAttempt]);
 
   const refreshResources = async () => {
     if (!mentorId) return;
@@ -65,7 +77,7 @@ export default function MentorResources() {
     if (e) {
       e.stopPropagation();
     }
-    if (!confirm("Bạn có chắc chắn muốn xóa tài liệu này?")) {
+    if (!confirm(englishText("Bạn có chắc chắn muốn xóa tài liệu này?"))) {
       return;
     }
 
@@ -93,30 +105,30 @@ export default function MentorResources() {
     }
   };
 
-  if (loading) return <p>Đang tải tài liệu...</p>;
+  if (loading) return <p><UiText text={"Đang tải tài liệu..."} /></p>;
+  if (loadError) return <div className="resources-page"><p role="alert"><UiText>{loadError}</UiText></p><button className="btn" onClick={()=>setLoadAttempt(n=>n+1)}><UiText text="Thử tải lại" /></button></div>;
 
   return (
     <div className="resources-page">
       <div className="resources-header">
-        <h2>Tài liệu của tôi</h2>
+        <h2><UiText text={"Tài liệu của tôi"} /></h2>
         <button className="btn-primary" onClick={() => {
           setEditingResource(null);
           setShowModal(true);
         }}>
-          <FiPlus style={{ marginRight: 6 }} /> Thêm tài liệu
-        </button>
+          <FiPlus style={{ marginRight: 6 }} />{" "}<UiText text={"Thêm tài liệu"} />{" "}</button>
       </div>
 
       <div className="resources-grid">
         {resources.length === 0 ? (
-          <div className="empty-state">Chưa có tài liệu nào được đăng tải</div>
+          <div className="empty-state"><UiText text={"Chưa có tài liệu nào được đăng tải"} /></div>
         ) : (
           resources.map(r => (
             <div key={r.id} className="resource-card">
               <div className="resource-preview" onClick={() => openPreview(r)}>
                 {r.type === "pdf" ? <FiFileText size={40} /> : <FiVideo size={40} />}
                 {!r.is_published && (
-                  <div className="hidden-badge">Đã ẩn</div>
+                  <div className="hidden-badge"><UiText text={"Đã ẩn"} /></div>
                 )}
               </div>
               <div className="resource-title" onClick={() => openPreview(r)}>{r.title}</div>
@@ -126,14 +138,14 @@ export default function MentorResources() {
                 <button
                   className="btn-icon"
                   onClick={(e) => handleToggleVisibility(r.id, r.is_published, e)}
-                  title={r.is_published ? "Ẩn tài liệu" : "Hiện tài liệu"}
+                  title={englishText(r.is_published ? "Ẩn tài liệu" : "Hiện tài liệu")}
                 >
                   {r.is_published ? <FiEye size={16} /> : <FiEyeOff size={16} />}
                 </button>
                 <button
                   className="btn-icon"
                   onClick={(e) => handleEdit(r, e)}
-                  title="Chỉnh sửa"
+                  title={englishText("Chỉnh sửa")}
                 >
                   <FiEdit2 size={16} />
                 </button>
@@ -189,7 +201,7 @@ export default function MentorResources() {
             </div>
           ) : selectedResource.type === "video" ? (
             <div>
-              <video 
+              <AuthenticatedMedia as="video"
                 src={normalizeVideoUrl(selectedResource.file_url)} 
                 controls 
                 width="100%" 
@@ -205,7 +217,7 @@ export default function MentorResources() {
             </div>
           ) : (
             <div>
-              <p>Không thể xem trước tài liệu này.</p>
+              <p><UiText text={"Không thể xem trước tài liệu này."} /></p>
             </div>
           )}
         </Modal>
@@ -267,7 +279,7 @@ function ResourceModal({ mentorId, resource, onClose, onSuccess }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!mentorId || isNaN(parseInt(mentorId))) {
-      alert("mentorId không hợp lệ. Không thể gửi tài liệu.");
+      alert(englishText("mentorId không hợp lệ. Không thể gửi tài liệu."));
       return;
     }
 
@@ -310,30 +322,30 @@ function ResourceModal({ mentorId, resource, onClose, onSuccess }) {
 
   return (
     <Modal
-      title={resource ? "Chỉnh sửa tài liệu" : "Thêm tài liệu mới"}
+      title={englishText(resource ? "Chỉnh sửa tài liệu" : "Thêm tài liệu mới")}
       onClose={onClose}
     >
       <form className="modal-body" onSubmit={handleSubmit}>
-        <label>Tiêu đề *</label>
+        <label><UiText text={"Tiêu đề *"} /></label>
         <input
           type="text"
           name="title"
           value={form.title}
           onChange={handleChange}
-          placeholder="Nhập tiêu đề tài liệu"
+          placeholder={englishText("Nhập tiêu đề tài liệu")}
           required
         />
 
-        <label>Mô tả</label>
+        <label><UiText text={"Mô tả"} /></label>
         <textarea
           name="description"
           value={form.description}
           onChange={handleChange}
-          placeholder="Nhập mô tả tài liệu"
+          placeholder={englishText("Nhập mô tả tài liệu")}
           rows={3}
         />
 
-        <label>Tệp tài liệu {resource ? "(để trống nếu giữ nguyên)" : "*"}</label>
+        <label><UiText text={"Tệp tài liệu"} />{" "}<UiText>{resource ? "(để trống nếu giữ nguyên)" : "*"}</UiText></label>
         <input 
           type="file" 
           accept=".pdf,.mp4,.mov,.avi" 
@@ -341,28 +353,24 @@ function ResourceModal({ mentorId, resource, onClose, onSuccess }) {
           required={!resource}
         />
         {selectedFile && (
-          <div style={{ marginTop: "8px", fontSize: "13px", color: "#6b7280" }}>
-            Đã chọn: {selectedFile.name} ({(selectedFile.size / 1024 / 1024).toFixed(2)} MB)
+          <div style={{ marginTop: "8px", fontSize: "13px", color: "#6b7280" }}>{" "}<UiText text={"Đã chọn:"} />{" "}{selectedFile.name} (<UiText>{(selectedFile.size / 1024 / 1024).toFixed(2)}</UiText> MB)
           </div>
         )}
         {resource && !selectedFile && (
-          <div style={{ marginTop: "8px", fontSize: "13px", color: "#6b7280" }}>
-            File hiện tại: {resource.file_url?.split("/").pop() || "N/A"}
+          <div style={{ marginTop: "8px", fontSize: "13px", color: "#6b7280" }}>{" "}<UiText text={"File hiện tại:"} />{" "}<UiText>{resource.file_url?.split("/").pop() || "N/A"}</UiText>
           </div>
         )}
 
-        <label>Loại tài liệu</label>
+        <label><UiText text={"Loại tài liệu"} /></label>
         <select name="type" value={form.type} onChange={handleChange}>
-          <option value="pdf">PDF</option>
-          <option value="video">Video</option>
+          <UiOption value="pdf">{"PDF"}</UiOption>
+          <UiOption value="video">{"Video"}</UiOption>
         </select>
 
         <div className="modal-actions">
-          <button type="button" className="btn-secondary" onClick={onClose} disabled={uploading}>
-            Hủy
-          </button>
+          <button type="button" className="btn-secondary" onClick={onClose} disabled={uploading}>{" "}<UiText text={"Hủy"} />{" "}</button>
           <button type="submit" className="btn-primary" disabled={uploading}>
-            {uploading ? "Đang lưu..." : resource ? "Cập nhật" : "Thêm mới"}
+            <UiText>{uploading ? "Đang lưu..." : resource ? "Cập nhật" : "Thêm mới"}</UiText>
           </button>
         </div>
       </form>

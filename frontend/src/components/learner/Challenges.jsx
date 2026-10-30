@@ -1,5 +1,10 @@
+import { UiOption } from '../../i18n/UiLanguage.jsx';
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 // src/components/learner/Challenges.jsx
 import React, { useEffect, useState, useRef } from "react";
+import DOMPurify from 'dompurify';
+import {CEFR_LEVELS,normalizeChallengeLevel} from '../../utils/challengeLevel.js';
 import { getAuth } from "../../utils/auth";
 import api from "../../api";
 import Modal from "../common/Modal";
@@ -58,7 +63,7 @@ export default function Challenges() {
           ? arr.map(c => ({
               id: c.id ?? c._id,
               title: c.title ?? "",
-              level: c.level ?? "",
+              level: normalizeChallengeLevel(c.level),
               description: stripHtml(c.description ?? ""),
               type: c.type ?? "",
               mentor_id: c.mentor_id ?? null,
@@ -101,7 +106,7 @@ export default function Challenges() {
 
   function stripHtml(html) {
     const div = document.createElement("div");
-    div.innerHTML = html;
+    div.innerHTML = DOMPurify.sanitize(String(html).replace(/<br\s*\/?\s*>|<\/(?:p|div|li|h[1-6])>/gi,' '));
     return (div.textContent || div.innerText || "").trim();
   }
 
@@ -160,30 +165,28 @@ export default function Challenges() {
   const content = (
     <div className="challenge-page">
       <div className="page-header">
-        <h2 className="page-title">Danh sách Challenges</h2>
+        <h2 className="page-title"><UiText text={"Danh sách Challenges"} /></h2>
         <button
           className={`favorite-toggle ${showFavorites ? "active" : ""}`}
           onClick={() => setShowFavorites(!showFavorites)}
         >
           <FiStar style={{ marginRight: "6px" }} />
-          {showFavorites ? "Tất cả" : "Yêu thích"} ({bookmarked.size})
+          <UiText>{showFavorites ? "Tất cả" : "Yêu thích"}</UiText> (<UiText>{bookmarked.size}</UiText>)
         </button>
       </div>
 
       <div className="challenge-toolbar">
         <div className="search">
           <input
-            placeholder="Tìm theo tên challenge..."
+            placeholder={englishText("Tìm theo tên challenge...")}
             value={query}
             onChange={e => setQuery(e.target.value)}
           />
         </div>
 
         <select value={filterLevel} onChange={e => setFilterLevel(e.target.value)}>
-          <option value="">Tất cả level</option>
-          <option value="easy">Easy</option>
-          <option value="medium">Medium</option>
-          <option value="hard">Hard</option>
+          <UiOption value="">{"Tất cả level"}</UiOption>
+          {CEFR_LEVELS.map(level=><option key={level} value={level}>{level}</option>)}
         </select>
 
         {mentorId && (
@@ -192,9 +195,7 @@ export default function Challenges() {
               type="checkbox"
               checked={mentorOnly}
               onChange={e => setMentorOnly(e.target.checked)}
-            />
-            Challenge giảng viên của bạn
-          </label>
+            />{" "}<UiText text={"Challenge giảng viên của bạn"} />{" "}</label>
         )}
       </div>
 
@@ -210,9 +211,9 @@ export default function Challenges() {
         </div>
       ) : displayChallenges.length === 0 ? (
         <div className="empty-state">
-          {showFavorites 
+          <UiText>{showFavorites
             ? "Bạn chưa có challenge yêu thích nào. Hãy đánh dấu ⭐ để thêm vào danh sách yêu thích!" 
-            : "Không có challenge phù hợp với bộ lọc hiện tại."}
+            : "Không có challenge phù hợp với bộ lọc hiện tại."}</UiText>
         </div>
       ) : (
         <div className="challenge-grid">
@@ -226,30 +227,25 @@ export default function Challenges() {
                 >
                   <div className="challenge-badges">
                     {isBookmarked && (
-                      <span className="challenge-badge favorite-badge">
-                        ⭐ Yêu thích
-                      </span>
+                      <span className="challenge-badge favorite-badge">{" "}<UiText text={"⭐ Yêu thích"} />{" "}</span>
                     )}
                     <span 
                       className="challenge-badge" 
                       style={{
-                        background: c.level === "easy" ? "#10b981" :
-                                   c.level === "medium" ? "#f59e0b" :
-                                   c.level === "hard" ? "#ef4444" : "#6b7280",
+                        background: c.level.startsWith('A') ? "#10b981" :
+                                   c.level.startsWith('B') ? "#3b82f6" : "#8b5cf6",
                         color: "#fff"
                       }}
                     >
-                      {c.level || "-"}
+                      <UiText>{c.level || "-"}</UiText>
                     </span>
                     {c.type && (
                       <span className="challenge-badge type-badge">
-                        {c.type}
+                        <UiText>{c.type}</UiText>
                       </span>
                     )}
                     {mentorId && c.mentor_id === mentorId && (
-                      <span className="challenge-badge mentor-badge">
-                        Của giảng viên
-                      </span>
+                      <span className="challenge-badge mentor-badge">{" "}<UiText text={"Của giảng viên"} />{" "}</span>
                     )}
                   </div>
                 </div>
@@ -266,13 +262,11 @@ export default function Challenges() {
                 </div>
 
                 <div className="challenge-footer">
-                  <button className="btn-view" onClick={() => openDetail(c)}>
-                    Xem chi tiết
-                  </button>
+                  <button className="btn-view" onClick={() => openDetail(c)}>{" "}<UiText text={"Xem chi tiết"} />{" "}</button>
                   <button 
                     className={`btn-mark ${isBookmarked ? "marked" : ""}`}
                     onClick={() => toggleBookmark(c.id)}
-                    title={isBookmarked ? "Bỏ yêu thích" : "Thêm vào yêu thích"}
+                    title={englishText(isBookmarked ? "Bỏ yêu thích" : "Thêm vào yêu thích")}
                   >
                     <FiStar style={{ color: isBookmarked ? "#F59E0B" : "#9CA3AF" }} />
                   </button>
@@ -284,7 +278,7 @@ export default function Challenges() {
       )}
 
       {detailChallenge && (
-        <Modal title={detailChallenge.title} onClose={() => setDetailChallenge(null)}>
+        <Modal className="challenge-workspace-modal" title={detailChallenge.title} onClose={() => setDetailChallenge(null)}>
           <ChallengeDetail
             id={detailChallenge.id}
             learnerId={learnerId}
@@ -297,7 +291,7 @@ export default function Challenges() {
 
   return (
     <div className="challenges">
-      {content}
+      <UiText>{content}</UiText>
     </div>
   );
 }

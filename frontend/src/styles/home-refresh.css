@@ -1,0 +1,69 @@
+.home-refresh { background: #fafbf9; color: #183b39; min-height: 100vh; font-family: 'Segoe UI',system-ui,sans-serif; }
+.home-refresh a { color: inherit; text-decoration: none; }
+.home-refresh main>section { box-shadow: none; border: 0; }
+.home-refresh .public-hero, .home-refresh .public-section { background: transparent; border-radius: 0; }
+.home-refresh .public-section h2 { border: 0; padding-bottom: 0; }
+.public-header { max-width: 1240px; margin: auto; min-height: 96px; padding: 22px 36px; display: flex; justify-content: space-between; align-items: center; gap: 24px; }
+.public-header nav { display: flex; align-items: center; gap: 28px; font-size: 13px; color: #657972; }
+.home-refresh .btn { display: inline-flex; align-items: center; justify-content: center; gap: 12px; padding: 12px 20px; }
+.home-refresh .btn-primary { background: #217b63; color: white; }
+.public-hero { max-width: 1240px; margin: auto; padding: 80px 36px 100px; display: grid; grid-template-columns: 1.05fr 1fr; align-items: center; gap: 80px; }
+.public-eyebrow { color: #548573; font-size: 11px; font-weight: 650; letter-spacing: 1.8px; text-transform: uppercase; margin-bottom: 18px; }
+.public-hero h1 { font-size: clamp(40px, 4.6vw, 64px); letter-spacing: -2.7px; line-height: 1.1; font-weight: 600; margin: 0 0 24px; max-width: 580px; }
+.public-intro { font-size: 17px; color: #7a8b81; max-width: 430px; line-height: 1.75; margin-bottom: 30px; }
+.public-actions { display: flex; gap: 28px; align-items: center; font-size: 14px; }
+.public-note { display: flex; align-items: center; gap: 8px; color: #82928a; font-size: 12px; margin-top: 24px; }
+.public-scene { background: #eaf1e8; border-radius: 30px; min-height: 390px; padding: 38px 28px; display: flex; flex-direction: column; justify-content: center; gap: 20px; transform: rotate(-2deg); }
+.preview-caption { display: flex; align-items: center; gap: 8px; font-size: 11px; color: #789184; margin-bottom: 14px; }
+.preview-dot { width: 6px; height: 6px; border-radius: 50%; background: #5d9d74; }
+.preview-bubble { max-width: 85%; font-size: 15px; padding: 16px 20px; border-radius: 15px; box-shadow: 0 3px 9px #3a604b06; }
+.preview-bubble-peer { background: #fff; align-self: flex-start; border-bottom-left-radius: 4px; }
+.preview-bubble-own { background: #377c67; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+.preview-bubble-own .ui-copy-vi { color: #e0f1e9; }
+.preview-mic { display: flex; justify-content: center; align-items: center; gap: 12px; font-size: 12px; color: #7e9587; margin-top: 18px; }
+.preview-mic>svg { background: #fff; padding: 10px; width: 42px; height: 42px; border-radius: 50%; color: #43836e; }
+.public-section { max-width: 1240px; padding: 50px 36px 70px; margin: auto; scroll-margin-top: 30px; }
+.public-section-heading { margin-bottom: 28px; }
+.public-section h2, .public-access h2 { font-size: 31px; font-weight: 600; letter-spacing: -.8px; }
+.public-features, .public-package-grid { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 22px; }
+.public-features article { position: relative; background: #fff; border: 1px solid #e5ece5; border-radius: 18px; padding: 28px; }
+.public-feature-icon { display: grid; place-items: center; width: 44px; height: 44px; background: #edf4ee; border-radius: 13px; color: #558069; font-size: 21px; margin-bottom: 25px; }
+.public-features h3 { font-size: 18px; margin-bottom: 10px; font-weight: 600; }
+.public-features p { color: #839087; font-size: 14px; line-height: 1.7; padding-right: 18px; }
+.public-features article>a { position: absolute; right: 22px; top: 28px; color: #8aa18f; }
+.public-package { padding: 30px; border: 1px solid #dce7df; border-radius: 18px; background: #fff; }
+.public-package h3 { font-size: 17px; font-weight: 600; margin-bottom: 22px; }
+.public-package-price { font-size: 27px; letter-spacing: -.8px; margin-bottom: 8px; }
+.public-package>p:not(.public-package-price) { font-size: 13px; color: #829184; line-height: 1.7; margin-bottom: 14px; }
+.public-access { max-width: 1168px; margin: 20px auto 70px; padding: 50px; border-radius: 24px; background: #edf3ec; display: grid; grid-template-columns: 1fr 1fr; gap: 80px; }
+.public-access>div>p:last-child { max-width: 320px; font-size: 14px; color: #7c8c80; line-height: 1.8; margin-top: 18px; }
+.public-access form { display: grid; gap: 14px; }
+.public-access label { display: grid; gap: 6px; font-size: 12px; color: #5c7364; }
+.public-access input { width: 100%; padding: 11px 12px; background: #fff; border: 1px solid #d6e2d6; }
+.public-access form>p { color: #557763; font-size: 13px; }
+.public-footer { max-width: 1240px; padding: 30px 36px; margin: auto; border-top: 1px solid #e4ebe3; display: flex; align-items: center; gap: 24px; color: #8a988d; font-size: 11px; }
+.public-footer>a { margin-left: auto; font-size: 12px; }
+body .login-wrap { background: #f4f7f3; display: flex; align-items: center; justify-content: center; padding: 110px 24px 60px; overflow-y: auto; }
+body .login-wrap .hero-bg { background-image: none !important; background: radial-gradient(ellipse at 20% 70%,#deeadf 0,transparent 60%); opacity: 1; }
+body .login-wrap .brand { background: none; border: 0; box-shadow: none; backdrop-filter: none; padding: 0; left: 34px; top: 30px; }
+body .login-wrap .login-card { position: relative; top: auto; right: auto; transform: none; width: 460px; background: #fff; padding: 36px; border: 1px solid #e0e8df; border-radius: 20px; box-shadow: 0 12px 50px #24463107; animation: none; color: #254238; }
+body .login-wrap .card-title { font-size: 29px; color: #213e33; letter-spacing: -.7px; }
+body .login-wrap .card-subtitle { color: #7a8c80; font-size: 13px; }
+body .login-wrap .input { background: #fbfcfa; border-color: #dce5db; color: #283d31; }
+body .login-wrap .btn-primary { background: #247b62; color: #fff; box-shadow: none; border: 0; }
+@media(max-width:760px) {
+  .public-header { padding: 16px; gap: 10px; }
+  .public-header nav { gap: 10px; }
+  .public-header .aesp-brand { font-size: 22px; gap: 6px; }
+  .public-header .aesp-brand-mark { width: 28px; height: 28px; flex-shrink: 0; }
+  .public-header .btn { padding: 10px 12px; white-space: nowrap; }
+  .public-header nav>a:not(.btn) { display: none; }
+  .public-hero { grid-template-columns: 1fr; padding: 44px 24px 60px; gap: 36px; }
+  .public-hero h1 { letter-spacing: -1.6px; }
+  .public-scene { min-height: 320px; transform: none; }
+  .public-section { padding: 32px 24px; }
+  .public-features, .public-package-grid { grid-template-columns: 1fr; }
+  .public-access { grid-template-columns: 1fr; margin: 32px 20px; padding: 26px; gap: 28px; }
+  .public-footer { padding: 24px; flex-wrap: wrap; }
+  body .login-wrap .login-card { padding: 28px 24px; }
+}

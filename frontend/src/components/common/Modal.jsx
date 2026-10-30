@@ -1,3 +1,5 @@
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿import React from "react";
 import { createPortal } from "react-dom";
 import "../../styles/modal.css";
@@ -18,17 +20,17 @@ export default function Modal({ title, children, onClose, className = "", isOpen
       <div className={`modal-card ${className}`} onClick={(e) => e.stopPropagation()}>
         {title && (
           <div className="modal-header">
-            <h3>{title}</h3>
+            <h3><UiText>{title}</UiText></h3>
             <button
               className="btn-close"
               onClick={onClose}
-              aria-label="Đóng"
+              aria-label={englishText("Đóng")}
             >
               ✕
             </button>
           </div>
         )}
-        <div className="modal-body">{children}</div>
+        <div className="modal-body"><UiText>{children}</UiText></div>
       </div>
     </div>,
     document.body

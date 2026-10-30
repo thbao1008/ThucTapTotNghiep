@@ -1,31 +1,46 @@
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import "../../../shared/loadBackendEnv.js";
+import { requireJwtSecret } from "../../../shared/jwtConfig.js";
+import pool from "../config/db.js";
+import { validateActiveSession } from "../../../shared/sessionValidation.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const JWT_SECRET = requireJwtSecret();
 
-const envFile = process.env.DOCKER === "true" ? "../../.env.docker" : "../../.env.local";
-const envPath = path.resolve(__dirname, envFile);
-dotenv.config({ path: envPath });
-
-export function authGuard(req, res, next) {
+export function createAuthGuard({
+  sessionPool = pool,
+  verifyToken = jwt.verify,
+  jwtSecret = JWT_SECRET,
+  validateSession = validateActiveSession
+} = {}) {
+  return async function authGuard(req, res, next) {
   try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
+    const match = typeof req.headers.authorization === "string"
+      ? req.headers.authorization.match(/^Bearer\s+(\S+)$/i)
+      : null;
+    if (!match) {
       return res.status(401).json({ message: "Thiếu token" });
     }
 
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret_key");
+    const token = match[1];
+    const decoded = verifyToken(token, jwtSecret, { algorithms: ["HS256"] });
+    const session = await validateSession(sessionPool, token, decoded.id);
+    if (!session.valid) {
+      return res.status(403).json({ message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại." });
+    }
     req.user = decoded;
-    next();
+    req.session = session.session;
+    return next();
   } catch (err) {
-    return res.status(403).json({ message: "Token không hợp lệ" });
+    if (err?.name === "JsonWebTokenError" || err?.name === "TokenExpiredError") {
+      return res.status(403).json({ message: "Token không hợp lệ" });
+    }
+    console.error("Unable to validate Purchase session:", err);
+    return res.status(503).json({ message: "Không thể xác minh phiên đăng nhập" });
   }
+  };
 }
+
+export const authGuard = createAuthGuard();
 
 export function adminGuard(req, res, next) {
   if (req.user?.role !== 'admin') {

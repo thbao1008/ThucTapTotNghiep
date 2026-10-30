@@ -1,5 +1,28 @@
 // backend/src/controllers/scenarioController.js
 import * as scenarioService from "../services/scenarioService.js";
+import pool from "../config/db.js";
+import { discardRejectedUpload } from "../utils/conversationTurn.js";
+
+// Called only after ownScenarioSession; restoring never generates AI content or writes.
+export async function getScenarioSession(req, res) {
+  try {
+    const result = await pool.query(`
+      SELECT ss.id AS session_id, ss.status, ss.score, ss.hints_used, ss.final_score, ss.scoring_details,
+             row_to_json(sc) AS scenario,
+             COALESCE((SELECT json_agg(c ORDER BY c.turn_number, c.id)
+               FROM (SELECT id, speaker, text_content AS text, audio_url,
+                            created_at AS timestamp, turn_number
+                     FROM scenario_conversations WHERE session_id = ss.id) c), '[]') AS conversations
+      FROM scenario_sessions ss
+      JOIN speaking_scenarios sc ON sc.id = ss.scenario_id
+      WHERE ss.id = $1 AND ss.learner_id = $2
+    `, [req.params.sessionId, req.learnerId]);
+    if (!result.rows[0]) return res.status(404).json({ message: "Session not found" });
+    res.json(result.rows[0]);
+  } catch {
+    res.status(500).json({ message: "Unable to restore scenario session" });
+  }
+}
 
 /**
  * Lấy danh sách scenarios
@@ -19,23 +42,10 @@ export async function getScenarios(req, res) {
  */
 export async function getIncompleteScenarioSession(req, res) {
   try {
-    const { learner_id, user_id } = req.query;
     const pool = (await import("../config/db.js")).default;
-
-    // Nếu có user_id, lookup learner_id
-    let actualLearnerId = learner_id;
-    if (!actualLearnerId && user_id) {
-      const learnerRes = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (learnerRes.rows[0]) {
-        actualLearnerId = learnerRes.rows[0].id;
-      }
-    }
-
+    const actualLearnerId = req.learnerId;
     if (!actualLearnerId) {
-      return res.status(400).json({ message: "learner_id or user_id is required" });
+      return res.status(403).json({ message: "Learner identity is required" });
     }
 
     const result = await pool.query(
@@ -73,48 +83,17 @@ export async function getIncompleteScenarioSession(req, res) {
 export async function createScenarioSession(req, res) {
   try {
     const { scenario_id } = req.body;
-    let learner_id = req.user?.learner_id || req.body.learner_id;
-    const user_id = req.user?.id || req.body.user_id;
-    const pool = (await import("../config/db.js")).default;
-
-    if (!learner_id && user_id) {
-      // Lookup learner_id from user_id
-      const result = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (result.rows[0]) {
-        learner_id = result.rows[0].id;
-      }
-    }
-
+    const learner_id = req.learnerId;
     if (!learner_id) {
       return res.status(400).json({ message: "learner_id is required" });
-    }
-
-    // Kiểm tra xem có session đang dở dang không
-    const existingSession = await pool.query(
-      `SELECT id FROM scenario_sessions 
-       WHERE learner_id = $1 
-         AND status = 'in_progress'
-         AND completed_at IS NULL
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [learner_id]
-    );
-
-    if (existingSession.rows.length > 0) {
-      return res.status(400).json({ 
-        message: "Bạn đang có một bài luyện giao tiếp chưa hoàn thành. Vui lòng hoàn thành bài đó trước khi bắt đầu bài mới.",
-        incomplete_session: {
-          session_id: existingSession.rows[0].id
-        }
-      });
     }
 
     const session = await scenarioService.createSession(learner_id, scenario_id);
     res.json({ session_id: session.id });
   } catch (err) {
+    if (err.code === "SCENARIO_SESSION_INCOMPLETE") {
+      return res.status(400).json({ message: err.message, incomplete_session: err.incomplete_session });
+    }
     console.error("❌ createScenarioSession error:", err);
     res.status(500).json({ message: err.message || "Server error" });
   }
@@ -143,11 +122,12 @@ export async function sendMessage(req, res) {
     const text = req.body.text;
     const audioFile = req.file;
 
-    const result = await scenarioService.processMessage(sessionId, text, audioFile);
+    const result = await scenarioService.processMessage(sessionId, text, audioFile, req.body.expected_revision);
     res.json(result);
   } catch (err) {
     console.error("❌ sendMessage error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    if (err.discardUploadSafe) await discardRejectedUpload(req.file);
+    res.status(err.status || 500).json({ message: err.message || "Server error", code: err.code });
   }
 }
 
@@ -161,7 +141,7 @@ export async function getHint(req, res) {
     res.json(hint);
   } catch (err) {
     console.error("❌ getHint error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    res.status(err.status || 500).json({ message: err.message || "Server error", code: err.code });
   }
 }
 
@@ -171,13 +151,10 @@ export async function getHint(req, res) {
 export async function evaluateFinalScore(req, res) {
   try {
     const { sessionId } = req.params;
-    const { pronunciation_score } = req.body;
-    
-    const score = await scenarioService.evaluateFinalScore(sessionId, pronunciation_score);
+    const score = await scenarioService.evaluateFinalScore(sessionId);
     res.json(score);
   } catch (err) {
     console.error("❌ evaluateFinalScore error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    res.status(err.status || 500).json({ message: err.message || "Server error", code: err.code });
   }
 }
-

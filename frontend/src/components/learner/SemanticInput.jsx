@@ -1,3 +1,5 @@
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 import React, { useState } from "react";
 import api from "../../api";
 import "../../styles/speaking-practice.css";
@@ -17,7 +19,7 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
   const handleSubmitTranslation = async (roundId) => {
     const translation = translations[roundId]?.trim();
     if (!translation) {
-      alert("Vui lòng viết nghĩa của đoạn văn");
+      alert(englishText("Vui lòng viết nghĩa của đoạn văn"));
       return;
     }
 
@@ -32,11 +34,11 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
         // Không hiển thị alert, chỉ đánh dấu đã submit
         setSubmittedRounds(prev => new Set([...prev, roundId]));
       } else {
-        alert(`Chưa chính xác. ${res.data.feedback || "Hãy thử lại."}`);
+        alert(`Chưa chính xác. ${res.data.feedback || englishText("Hãy thử lại.")}`);
       }
     } catch (err) {
       console.error("❌ Error submitting translation:", err);
-      alert("Có lỗi xảy ra. Vui lòng thử lại.");
+      alert(englishText("Có lỗi xảy ra. Vui lòng thử lại."));
     } finally {
       setSubmitting(false);
     }
@@ -52,14 +54,14 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
   return (
     <div className="semantic-input">
       <div className="semantic-header">
-        <h2>Nhập ngữ nghĩa</h2>
-        <p>Viết nghĩa tiếng Việt của các đoạn văn bạn đã nói (không bắt buộc)</p>
+        <h2><UiText text={"Nhập ngữ nghĩa"} /></h2>
+        <p><UiText text={"Viết nghĩa tiếng Việt của các đoạn văn bạn đã nói (không bắt buộc)"} /></p>
       </div>
 
       <div className="semantic-content" style={{ maxHeight: "70vh", overflowY: "auto", padding: "0 10px" }}>
         {rounds.length === 0 ? (
           <div style={{ textAlign: "center", padding: 40, color: "#666" }}>
-            <p>Đang tải dữ liệu các vòng...</p>
+            <p><UiText text={"Đang tải dữ liệu các vòng..."} /></p>
           </div>
         ) : (
           rounds.map((round, idx) => {
@@ -69,14 +71,14 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
           return (
             <div key={roundKey} className="translation-item" style={{ marginBottom: 30, padding: 20, background: "#f9fafb", borderRadius: 8, border: "1px solid #e5e7eb" }}>
               <div className="translation-prompt">
-                <strong style={{ fontSize: 18, color: "#10b981" }}>Vòng {round.round_number || idx + 1}:</strong>
-                <p style={{ marginTop: 10, fontSize: 16, color: "#333", lineHeight: 1.6 }}>{round.prompt}</p>
+                <strong style={{ fontSize: 18, color: "#10b981" }}><UiText text={"Vòng"} />{" "}<UiText>{round.round_number || idx + 1}</UiText>:</strong>
+                <p style={{ marginTop: 10, fontSize: 16, color: "#333", lineHeight: 1.6 }}><UiText>{round.prompt}</UiText></p>
               </div>
               <textarea
                 value={translations[roundKey] || ""}
                 onChange={(e) => handleTranslationChange(roundKey, e.target.value)}
                 rows="3"
-                placeholder="Viết nghĩa tiếng Việt của đoạn văn trên (không bắt buộc)..."
+                placeholder={englishText("Viết nghĩa tiếng Việt của đoạn văn trên (không bắt buộc)...")}
                 className="translation-input"
                 disabled={submittedRounds.has(roundKey) || !roundId}
                 style={{
@@ -93,13 +95,9 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
                 }}
               />
               {!roundId ? (
-                <div style={{ color: "#999", marginBottom: 15, fontSize: 12 }}>
-                  ⏳ Đang xử lý, vui lòng đợi...
-                </div>
+                <div style={{ color: "#999", marginBottom: 15, fontSize: 12 }}>{" "}<UiText text={"⏳ Đang xử lý, vui lòng đợi..."} />{" "}</div>
               ) : submittedRounds.has(roundKey) ? (
-                <div style={{ color: "#10b981", marginBottom: 15, fontSize: 14, fontWeight: 500 }}>
-                  ✅ Đã kiểm tra
-                </div>
+                <div style={{ color: "#10b981", marginBottom: 15, fontSize: 14, fontWeight: 500 }}>{" "}<UiText text={"✅ Đã kiểm tra"} />{" "}</div>
               ) : (
                 <button
                   onClick={() => handleSubmitTranslation(roundId)}
@@ -117,7 +115,7 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
                     transition: "all 0.2s"
                   }}
                 >
-                  {submitting ? "Đang kiểm tra..." : "Kiểm tra"}
+                  <UiText>{submitting ? "Đang kiểm tra..." : "Kiểm tra"}</UiText>
                 </button>
               )}
             </div>
@@ -149,9 +147,7 @@ export default function SemanticInput({ sessionId, rounds, onComplete, onSkip })
             e.target.style.transform = "translateY(0)";
             e.target.style.boxShadow = "0 2px 8px rgba(16, 185, 129, 0.3)";
           }}
-        >
-          Bỏ qua
-        </button>
+        >{" "}<UiText text={"Bỏ qua"} />{" "}</button>
       </div>
     </div>
   );

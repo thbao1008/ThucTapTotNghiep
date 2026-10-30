@@ -1,11 +1,19 @@
-import React, { useEffect, useState } from "react";
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
+import MentorAssignment from "./MentorAssignment.jsx";
+import React, { useEffect, useState, useRef } from "react";
 import api from "../../api.js";
 import Modal from "../common/Modal.jsx";
 import AssignedLearnersModal from "../common/AssignedLearnersModal.jsx";
 import { getAuth } from "../../utils/auth.js";
 import "../../styles/user-for-page.css";
 
-export default function UserForPage({ userId, onClose, onStatusChange }) {
+export default function UserForPage(props) {
+  if(getAuth()?.user?.role?.toLowerCase()!=='admin')return <Modal title={englishText('Thông tin người dùng')} onClose={props.onClose}><p role="alert"><UiText>Không có quyền admin</UiText></p></Modal>;
+  return <AdminUserProfile key={props.userId} {...props}/>;
+}
+
+function AdminUserProfile({ userId, onClose, onStatusChange }) {
   const [user, setUser] = useState(null);
   const [latestPurchase, setLatestPurchase] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -23,80 +31,15 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
   const isAdmin = auth?.user?.role?.toUpperCase() === "ADMIN";
 
   useEffect(() => {
-    const fetchUser = async () => {
-      try {
-        const res = await api.get(`/admin/users/${userId}`);
-        const u = res.data.user || res.data;
-        setUser(u);
-
-        if (u.role?.toUpperCase() === "LEARNER") {
-          const learnerId = u.learner_id;
-          if (learnerId) {
-            const purchaseRes = await api.get(`/learners/${learnerId}/latest-purchase`);
-            setLatestPurchase(purchaseRes.data.purchase || null);
-            
-            // Load total rating (average from practice + challenges)
-            try {
-              const ratingRes = await api.get(`/learners/${learnerId}/progress-analytics`);
-              if (ratingRes.data?.overall?.average_score) {
-                setLearnerTotalRating(ratingRes.data.overall.average_score);
-              }
-            } catch (err) {
-              // Use rating from user object if available
-              if (u.learner_average_score) {
-                setLearnerTotalRating(u.learner_average_score);
-              }
-            }
-          }
-        }
-        
-        // Load bio for mentor
-        if (u.role?.toUpperCase() === "MENTOR") {
-          try {
-            const mentorRes = await api.get(`/mentors/by-user/${userId}`);
-            const mentorData = mentorRes.data;
-            if (mentorData?.bio) {
-              setMentorBio(mentorData.bio);
-            }
-          } catch (err) {
-            console.error("Error loading mentor bio:", err);
-          }
-        }
-      } catch (err) {
-        if (err.response?.status === 403 || err.response?.status === 404) {
-          try {
-            // Try to get mentor by userId
-            const res = await api.get(`/mentors/by-user/${userId}`);
-            const mentor = res.data.mentor || res.data;
-            if (mentor) {
-              setUser({
-                ...mentor,
-                role: "MENTOR",
-                user_id: mentor.user_id || userId,
-                id: mentor.user_id || userId,
-                name: mentor.name,
-                email: mentor.email,
-                phone: mentor.phone,
-                dob: mentor.dob,
-                status: mentor.status,
-                mentor_rating: mentor.rating
-              });
-              if (mentor.bio) {
-                setMentorBio(mentor.bio);
-              }
-            }
-          } catch (e2) {
-            console.error("❌ Fallback load mentor error:", e2);
-          }
-        } else {
-          console.error("❌ Lỗi load user:", err);
-        }
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchUser();
+    let current=true;
+    setLoading(true);setUser(null);setLatestPurchase(null);setLearnerTotalRating(null);setMentorBio('');
+    api.get(`/admin/users/${userId}`).then(res=>{
+      if(!current)return;
+      const u=res.data.user;setUser(u);setMentorBio(u.mentor_bio||'');
+      if(u.package_name)setLatestPurchase({package_name:u.package_name,expiry_date:u.expiry_date,status:u.package_status,is_active:u.package_is_active});
+    }).catch(()=>{}).finally(()=>{if(current)setLoading(false);});
     loadBanHistory();
+    return ()=>{current=false;};
   }, [userId]);
 
   const handleBanClick = () => {
@@ -111,62 +54,33 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
     }
   };
 
-  const handleConfirmBan = async () => {
-    if (!banReason.trim()) {
-      alert("Vui lòng nhập lý do ban");
-      return;
-    }
-    
-    try {
-      const res = await api.put(`/admin/users/${userId}/status`, { 
-        status: "banned",
-        ban_reason: banReason.trim()
-      });
-      if (res.data?.user) {
-        const updated = res.data.user;
-        setUser(updated);
-        setShowBanModal(false);
-        setBanReason("");
-        // Reload ban history
-        loadBanHistory();
-        if (onStatusChange) onStatusChange(updated);
-      }
-    } catch (err) {
-      console.error("❌ Lỗi ban user:", err);
-      alert(err?.response?.data?.message || "Có lỗi xảy ra khi ban user");
-    }
-  };
-
-  const handleConfirmUnban = async () => {
-    if (!unbanReason.trim()) {
-      alert("Vui lòng nhập lý do mở ban");
-      return;
-    }
-    
-    try {
-      const res = await api.put(`/admin/users/${userId}/status`, { 
-        status: "active",
-        unban_reason: unbanReason.trim()
-      });
-      if (res.data?.user) {
-        const updated = res.data.user;
-        setUser(updated);
-        setShowUnbanModal(false);
-        setUnbanReason("");
-        // Reload ban history
-        loadBanHistory();
-        // Reload user để lấy ban_reason mới (null khi unban)
-        const userRes = await api.get(`/admin/users/${userId}`);
-        const u = userRes.data.user || userRes.data;
-        setUser(u);
-        if (onStatusChange) onStatusChange(updated);
-      }
-    } catch (err) {
-      console.error("❌ Lỗi unban user:", err);
-      alert(err?.response?.data?.message || "Có lỗi xảy ra khi mở ban user");
-    }
-  };
-
+  const statusPending = useRef(false);
+  const [statusBusy,setStatusBusy] = useState(false);
+  const [statusError,setStatusError] = useState('');
+  const [statusUncertain,setStatusUncertain] = useState(false);
+  async function refreshStatus() {
+    if(statusPending.current)return;
+    statusPending.current=true;setStatusBusy(true);
+    try{const {data}=await api.get(`/admin/users/${userId}`,{timeout:12000});if(!data?.user)throw Error('Invalid profile');setUser(data.user);setStatusUncertain(false);setStatusError('');setShowBanModal(false);setShowUnbanModal(false);await loadBanHistory();onStatusChange?.(data.user);}
+    catch{setStatusError('Không thể tải lại hồ sơ. Vui lòng thử lại.');}
+    finally{statusPending.current=false;setStatusBusy(false);}
+  }
+  async function changeStatus(status,reason) {
+    if(statusPending.current||statusUncertain)return;
+    if(!reason.trim()){setStatusError('Vui lòng nhập lý do');return;}
+    statusPending.current=true;setStatusBusy(true);setStatusError('');
+    try{
+      const {data}=await api.put(`/admin/users/${userId}/status`,{status,...(status==='banned'?{ban_reason:reason.trim()}:{unban_reason:reason.trim()})},{timeout:20000});
+      if(data?.user?.status!==status)throw Error('Unconfirmed status');
+      setUser(current=>({...current,...data.user}));setShowBanModal(false);setShowUnbanModal(false);setBanReason('');setUnbanReason('');await loadBanHistory();onStatusChange?.(data.user);
+    }catch(error){
+      const uncertain=!error.response||error.response.status>=500;
+      setStatusUncertain(uncertain);
+      setStatusError(uncertain?'Chưa xác nhận được kết quả. Hãy tải lại hồ sơ trước khi thử lại.':error.response?.data?.message||'Không thể cập nhật trạng thái.');
+    }finally{statusPending.current=false;setStatusBusy(false);}
+  }
+  const handleConfirmBan=()=>changeStatus('banned',banReason);
+  const handleConfirmUnban=()=>changeStatus('active',unbanReason);
   const loadBanHistory = async () => {
     try {
       const res = await api.get(`/admin/users/${userId}/ban-history`);
@@ -178,47 +92,47 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
     }
   };
 
-  if (loading) return <p>Đang tải...</p>;
-  if (!user) return <p>Không tìm thấy người dùng.</p>;
+  if (loading) return <p><UiText text={"Đang tải..."} /></p>;
+  if (!user) return <p><UiText text={"Không tìm thấy người dùng."} /></p>;
 
   const isMentor = user.role?.toUpperCase() === "MENTOR";
 
   return (
-    <Modal title="Thông tin người dùng" onClose={onClose} className="user-for-page-modal">
+    <Modal title={englishText("Thông tin người dùng")} onClose={onClose} className="user-for-page-modal">
       <div className="user-for-page-content">
         <div className="user-for-page-main">
           <div className="user-for-page-info">
             <div className="user-for-page-info-item">
-              <span className="user-for-page-info-label">Tên:</span>
+              <span className="user-for-page-info-label"><UiText text={"Tên:"} /></span>
               <span className="user-for-page-info-value">{user.name}</span>
             </div>
             <div className="user-for-page-info-item">
-              <span className="user-for-page-info-label">Email:</span>
+              <span className="user-for-page-info-label"><UiText text={"Email:"} /></span>
               <span className="user-for-page-info-value">{user.email}</span>
             </div>
             <div className="user-for-page-info-item">
-              <span className="user-for-page-info-label">SĐT:</span>
+              <span className="user-for-page-info-label"><UiText text={"SĐT:"} /></span>
               <span className="user-for-page-info-value">{user.phone || "-"}</span>
             </div>
             <div className="user-for-page-info-item">
-              <span className="user-for-page-info-label">Ngày sinh:</span>
+              <span className="user-for-page-info-label"><UiText text={"Ngày sinh:"} /></span>
               <span className="user-for-page-info-value">
-                {user.dob ? new Date(user.dob).toLocaleDateString("vi-VN") : "-"}
+                <UiText>{user.dob ? new Date(user.dob).toLocaleDateString('en-GB') : "-"}</UiText>
               </span>
             </div>
             {!isMentor && (
               <div className="user-for-page-info-item">
-                <span className="user-for-page-info-label">Vai trò:</span>
-                <span className="user-for-page-info-value">{user.role}</span>
+                <span className="user-for-page-info-label"><UiText text={"Vai trò:"} /></span>
+                <span className="user-for-page-info-value"><UiText>{user.role}</UiText></span>
               </div>
             )}
             {isMentor && (
               <div className="user-for-page-info-item user-for-page-bio">
-                <span className="user-for-page-info-label">Giới thiệu:</span>
+                <span className="user-for-page-info-label"><UiText text={"Giới thiệu:"} /></span>
                 {mentorBio ? (
-                  <span className="user-for-page-info-value user-for-page-bio-text">{mentorBio}</span>
+                  <span className="user-for-page-info-value user-for-page-bio-text"><UiText>{mentorBio}</UiText></span>
                 ) : (
-                  <span className="user-for-page-info-value user-for-page-bio-empty">Chưa được cập nhật</span>
+                  <span className="user-for-page-info-value user-for-page-bio-empty"><UiText text={"Chưa được cập nhật"} /></span>
                 )}
               </div>
             )}
@@ -227,28 +141,24 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
           {/* Rating Section */}
           {user.role?.toUpperCase() === "LEARNER" && learnerTotalRating !== null && (
             <div className="user-for-page-section">
-              <h4>Điểm đánh giá tổng</h4>
+              <h4><UiText text={"Điểm đánh giá tổng"} /></h4>
               <div className="user-for-page-rating-box">
                 <div className="user-for-page-rating-value">
-                  {parseFloat(learnerTotalRating).toFixed(1)}/100
+                  <UiText>{parseFloat(learnerTotalRating).toFixed(1)}</UiText>/100
                 </div>
-                <div className="user-for-page-rating-label">
-                  Điểm trung bình từ luyện nói và challenge
-                </div>
+                <div className="user-for-page-rating-label">{" "}<UiText text={"Điểm trung bình từ luyện nói và challenge"} />{" "}</div>
               </div>
             </div>
           )}
           
           {user.role?.toUpperCase() === "MENTOR" && user.mentor_rating !== null && user.mentor_rating !== undefined && (
             <div className="user-for-page-section">
-              <h4>Điểm đánh giá</h4>
+              <h4><UiText text={"Điểm đánh giá"} /></h4>
               <div className="user-for-page-rating-box">
                 <div className="user-for-page-rating-value">
-                  {parseFloat(user.mentor_rating).toFixed(1)}/10
+                  <UiText>{parseFloat(user.mentor_rating).toFixed(1)}</UiText>/10
                 </div>
-                <div className="user-for-page-rating-label">
-                  Điểm đánh giá từ học viên
-                </div>
+                <div className="user-for-page-rating-label">{" "}<UiText text={"Điểm đánh giá từ học viên"} />{" "}</div>
               </div>
             </div>
           )}
@@ -256,51 +166,48 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
           {user.role?.toUpperCase() === "LEARNER" && (
             <>
               <div className="user-for-page-section">
-                <h4>Gói học đã đăng ký</h4>
+                <h4><UiText text={"Gói học đã đăng ký"} /></h4>
                 {latestPurchase ? (
                   <>
                     <div className="user-for-page-package-info">
                       <p>
-                        <strong>Tên gói:</strong> {latestPurchase.package_name || "Không rõ"}{" "}
+                        <strong><UiText text={"Tên gói:"} /></strong> <UiText>{latestPurchase.package_name || "Không rõ"}</UiText>{" "}
                         <span className={`user-for-page-package-status ${
                           user.status === "banned" 
                             ? "paused" 
-                            : (latestPurchase.expiry_date && new Date(latestPurchase.expiry_date) > new Date())
+                            : latestPurchase.is_active
                             ? "active" 
                             : "expired"
                         }`}>
-                          {user.status === "banned"
-                            ? "Tạm ngưng"
-                            : (latestPurchase.expiry_date && new Date(latestPurchase.expiry_date) > new Date())
+                          <UiText>{user.status === "banned"
+                            ? "Tài khoản bị khóa · thời hạn gói vẫn tính"
+                            : latestPurchase.is_active
                             ? "Còn hạn"
-                            : "Hết hạn"}
+                            : "Hết hạn"}</UiText>
                         </span>
                       </p>
                       {latestPurchase.created_at && (
-                        <span className="user-for-page-small">
-                          Ngày mua: {new Date(latestPurchase.created_at).toLocaleDateString("vi-VN")}
+                        <span className="user-for-page-small">{" "}<UiText text={"Ngày mua:"} />{" "}<UiText>{new Date(latestPurchase.created_at).toLocaleDateString('en-GB')}</UiText>
                         </span>
                       )}
                       {latestPurchase.expiry_date && (
                         <span className="user-for-page-small">
-                          {" "}– Hết hạn: {new Date(latestPurchase.expiry_date).toLocaleDateString("vi-VN")}
+                          {" "}<UiText text={"– Hết hạn:"} />{" "}<UiText>{new Date(latestPurchase.expiry_date).toLocaleDateString('en-GB')}</UiText>
                         </span>
                       )}
                     </div>
                     <button
                       className="user-for-page-btn user-for-page-btn-primary"
                       onClick={() => window.location.href = `/admin/purchases/${user.learner_id}`}
-                    >
-                      Xem chi tiết gói học
-                    </button>
+                    >{" "}<UiText text={"Xem chi tiết gói học"} />{" "}</button>
                   </>
                 ) : (
-                  <p className="user-for-page-muted">Chưa có gói học nào</p>
+                  <p className="user-for-page-muted"><UiText text={"Chưa có gói học nào"} /></p>
                 )}
               </div>
 
               <div className="user-for-page-section">
-                <h4>Được hướng dẫn bởi giảng viên</h4>
+                <h4><UiText text={"Mentor hỗ trợ"} /></h4>
                 {user.mentor_name ? (
                   <p>
                     <span
@@ -311,38 +218,12 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                     </span>
                   </p>
                 ) : (
-                  <p className="user-for-page-muted">Chưa được gán giảng viên</p>
+                  <p className="user-for-page-muted"><UiText text={"Chưa được gán Mentor"} /></p>
                 )}
-                {isAdmin && user.mentor_name && (
-                  <button
-                    className="user-for-page-btn user-for-page-btn-secondary"
-                    onClick={async () => {
-                      if (!user.learner_id) return;
-                      if (!window.confirm("Bạn có chắc chắn muốn đổi mentor? Mentor cũ sẽ được thêm vào danh sách blocklist và hệ thống sẽ tự động gán mentor mới.")) {
-                        return;
-                      }
-                      try {
-                        const res = await api.post("/admin/users/learners/change-mentor", {
-                          learnerId: user.learner_id,
-                        });
-                        if (res.data.success) {
-                          alert(res.data.message);
-                          // Refresh user data
-                          const userRes = await api.get(`/admin/users/${userId}`);
-                          const u = userRes.data.user || userRes.data;
-                          setUser(u);
-                          if (onStatusChange) onStatusChange();
-                        }
-                      } catch (err) {
-                        console.error("Lỗi đổi mentor:", err);
-                        alert("Có lỗi xảy ra khi đổi mentor");
-                      }
-                    }}
-                    style={{ marginTop: "8px", width: "100%" }}
-                  >
-                    Đổi mentor
-                  </button>
-                )}
+                {isAdmin && <MentorAssignment key={user.learner_id} learnerId={user.learner_id} onChanged={async()=>{
+                  const res=await api.get(`/admin/users/${userId}`);setUser(res.data.user);onStatusChange?.();
+                }}/>}
+
               </div>
 
               <div className="user-for-page-section">
@@ -355,9 +236,7 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                     }
                   }}
                   style={{ width: "100%" }}
-                >
-                  Xem tiến độ học tập
-                </button>
+                >{" "}<UiText text={"Xem tiến độ học tập"} />{" "}</button>
               </div>
             </>
           )}
@@ -367,9 +246,7 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
               <button 
                 className="user-for-page-btn user-for-page-btn-secondary" 
                 onClick={() => setShowAssigned(true)}
-              >
-                Danh sách học viên được bổ nhiệm
-              </button>
+              >{" "}<UiText text={"Danh sách học viên được bổ nhiệm"} />{" "}</button>
             </div>
           )}
         </div>
@@ -388,11 +265,11 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
           {isAdmin && (
             <>
               <button
-                onClick={handleBanClick}
+                disabled={statusBusy||statusUncertain} onClick={handleBanClick}
                 className="user-for-page-btn user-for-page-btn-danger"
                 style={{ marginTop: "16px", width: "100%" }}
               >
-                {user.status === "active" ? "Ban user" : "Unban user"}
+                <UiText>{user.status === "active" ? "Ban user" : "Unban user"}</UiText>
               </button>
 
               {/* Hiển thị lý do ban nếu user bị banned */}
@@ -405,8 +282,8 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                   borderRadius: "8px",
                   fontSize: "14px"
                 }}>
-                  <strong style={{ color: "#dc2626" }}>Lý do ban:</strong>
-                  <p style={{ margin: "8px 0 0 0", color: "#991b1b" }}>{user.ban_reason}</p>
+                  <strong style={{ color: "#dc2626" }}><UiText text={"Lý do ban:"} /></strong>
+                  <p style={{ margin: "8px 0 0 0", color: "#991b1b" }}><UiText>{user.ban_reason}</UiText></p>
                 </div>
               )}
 
@@ -420,7 +297,7 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                   borderRadius: "8px",
                   fontSize: "13px"
                 }}>
-                  <strong style={{ color: "#374151" }}>Lịch sử ban/unban:</strong>
+                  <strong style={{ color: "#374151" }}><UiText text={"Lịch sử ban/unban:"} /></strong>
                   <div style={{ marginTop: "8px", maxHeight: "200px", overflowY: "auto" }}>
                     {banHistory.map((record, idx) => (
                       <div key={idx} style={{ 
@@ -431,14 +308,14 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                         borderLeft: `3px solid ${record.action === 'banned' ? '#ef4444' : '#10b981'}`
                       }}>
                         <div style={{ fontWeight: "600", color: record.action === 'banned' ? '#dc2626' : '#059669' }}>
-                          {record.action === 'banned' ? '🚫 Bị ban' : '✅ Mở ban'}
+                          <UiText>{record.action === 'banned' ? '🚫 Bị ban' : '✅ Mở ban'}</UiText>
                         </div>
                         <div style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
-                          {new Date(record.created_at).toLocaleString('vi-VN')}
+                          <UiText>{new Date(record.created_at).toLocaleString('en-GB')}</UiText>
                         </div>
                         {record.reason && (
                           <div style={{ marginTop: "4px", color: "#374151" }}>
-                            <strong>Lý do:</strong> {record.reason}
+                            <strong><UiText text={"Lý do:"} /></strong> <UiText>{record.reason}</UiText>
                           </div>
                         )}
                       </div>
@@ -461,13 +338,15 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
           }}
         >
           <div style={{ padding: "20px" }}>
-            <p style={{ marginBottom: "16px", color: "#374151" }}>
-              Vui lòng nhập lý do ban cho user <strong>{user?.name}</strong>:
+            <p style={{ marginBottom: "16px", color: "#374151" }}>{" "}<UiText text={"Vui lòng nhập lý do ban cho user"} />{" "}<strong>{user?.name}</strong>:
             </p>
+            {statusError && <p role="alert"><UiText>{statusError}</UiText></p>}
+            {statusUncertain && <button disabled={statusBusy} onClick={refreshStatus}><UiText text="Tải lại hồ sơ" /></button>}
+            {statusBusy && <p role="status"><UiText text="Đang xử lý..." /></p>}
             <textarea
               value={banReason}
               onChange={(e) => setBanReason(e.target.value)}
-              placeholder="Nhập lý do ban..."
+              placeholder={englishText("Nhập lý do ban...")}
               style={{
                 width: "100%",
                 minHeight: "100px",
@@ -493,11 +372,9 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                   cursor: "pointer",
                   fontSize: "14px"
                 }}
-              >
-                Hủy
-              </button>
+              >{" "}<UiText text={"Hủy"} />{" "}</button>
               <button
-                onClick={handleConfirmBan}
+                disabled={statusBusy||statusUncertain} onClick={handleConfirmBan}
                 style={{
                   padding: "10px 20px",
                   background: "#dc2626",
@@ -507,9 +384,7 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                   cursor: "pointer",
                   fontSize: "14px"
                 }}
-              >
-                Xác nhận ban
-              </button>
+              >{" "}<UiText text={"Xác nhận ban"} />{" "}</button>
             </div>
           </div>
         </Modal>
@@ -525,13 +400,15 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
           }}
         >
           <div style={{ padding: "20px" }}>
-            <p style={{ marginBottom: "16px", color: "#374151" }}>
-              Vui lòng nhập lý do mở ban cho user <strong>{user?.name}</strong>:
+            <p style={{ marginBottom: "16px", color: "#374151" }}>{" "}<UiText text={"Vui lòng nhập lý do mở ban cho user"} />{" "}<strong>{user?.name}</strong>:
             </p>
+            {statusError && <p role="alert"><UiText>{statusError}</UiText></p>}
+            {statusUncertain && <button disabled={statusBusy} onClick={refreshStatus}><UiText text="Tải lại hồ sơ" /></button>}
+            {statusBusy && <p role="status"><UiText text="Đang xử lý..." /></p>}
             <textarea
               value={unbanReason}
               onChange={(e) => setUnbanReason(e.target.value)}
-              placeholder="Nhập lý do mở ban..."
+              placeholder={englishText("Nhập lý do mở ban...")}
               style={{
                 width: "100%",
                 minHeight: "100px",
@@ -557,11 +434,9 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                   cursor: "pointer",
                   fontSize: "14px"
                 }}
-              >
-                Hủy
-              </button>
+              >{" "}<UiText text={"Hủy"} />{" "}</button>
               <button
-                onClick={handleConfirmUnban}
+                disabled={statusBusy||statusUncertain} onClick={handleConfirmUnban}
                 style={{
                   padding: "10px 20px",
                   background: "#10b981",
@@ -571,9 +446,7 @@ export default function UserForPage({ userId, onClose, onStatusChange }) {
                   cursor: "pointer",
                   fontSize: "14px"
                 }}
-              >
-                Xác nhận mở ban
-              </button>
+              >{" "}<UiText text={"Xác nhận mở ban"} />{" "}</button>
             </div>
           </div>
         </Modal>

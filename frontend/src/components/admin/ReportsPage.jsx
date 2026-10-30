@@ -1,15 +1,30 @@
+import { UiOption,useUiLanguage } from '../../i18n/UiLanguage.jsx';
+import { englishText,selectUiCopy } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿import React, { useEffect, useState } from "react";
+import {useRef} from "react";
+import {reportReplyDraft,replaceReviewedReport} from "../../utils/adminReport.js";
 import api from "../../api.js";
-import { FaCommentDots, FaSearch } from "react-icons/fa";
+import { FiFlag, FiSearch, FiUsers, FiRefreshCw } from "react-icons/fi";
 import "../../styles/reportpage.css";
+import '../../styles/admin-casework-refresh.css';
 import UserForPage from "./UserForPage.jsx";
 import ProgressAnalytics from "../learner/ProgressAnalytics.jsx";
 import { normalizeFileUrl, normalizeImageUrl, normalizeVideoUrl } from "../../utils/apiHelpers.js";
+import { AuthenticatedMedia } from "../../utils/authenticatedMedia.jsx";
 
 export default function ReportsPage() {
+  const {locale}=useUiLanguage();
   const [filters, setFilters] = useState({ from: "", to: "", status: "pending" });
   const [summary, setSummary] = useState({ total_reports: 0 });
   const [feedbacks, setFeedbacks] = useState([]);
+  const [loadingReports,setLoadingReports]=useState(true);
+  const [reportsError,setReportsError]=useState('');
+  const [loadingSummary,setLoadingSummary]=useState(true);
+  const [summaryError,setSummaryError]=useState(false);
+  const [progressError,setProgressError]=useState('');
+  const summaryRequestRef=useRef(0);
+  const reportsRequestRef=useRef(0);
   const [progress, setProgress] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedUserId, setSelectedUserId] = useState(null);
@@ -30,37 +45,47 @@ export default function ReportsPage() {
   const [showReplyModal, setShowReplyModal] = useState(false);
   const [selectedReport, setSelectedReport] = useState(null);
   const [replyContent, setReplyContent] = useState("");
+  const [savingReply,setSavingReply]=useState(false);
+  const [replyError,setReplyError]=useState('');
+  const statusFilterRef=useRef(filters.status);
+  statusFilterRef.current=filters.status;
   
   // State cho modal phóng to hình ảnh/video
   const [showMediaModal, setShowMediaModal] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState({ type: null, url: null });
 
   // Load summary (chỉ để lọc theo thời gian)
-  const fetchSummary = async () => {
+  const fetchSummary = async (currentFilters=filters) => {
+    const request=++summaryRequestRef.current;
+    setLoadingSummary(true);setSummaryError(false);
     try {
       const params = {};
-      if (filters.from && filters.to) {
-        params.from = filters.from;
-        params.to = filters.to;
+      if (currentFilters.from && currentFilters.to) {
+        params.from = currentFilters.from;
+        params.to = currentFilters.to;
       }
       const res = await api.get("/admin/reports/summary", { params });
-      setSummary(res.data.summary || { total_reports: 0 });
+      if(request===summaryRequestRef.current)setSummary(res.data.summary || { total_reports: 0 });
     } catch (err) {
       console.error("❌ Lỗi load summary:", err);
-    }
+      if(request===summaryRequestRef.current)setSummaryError(true);
+    } finally {if(request===summaryRequestRef.current)setLoadingSummary(false);}
   };
 
   // Load reports
   const fetchReports = async (status) => {
+    const request=++reportsRequestRef.current;
+    setLoadingReports(true);setReportsError('');
     try {
       const params = {};
       if (status) params.status = status;
       else if (filters.status) params.status = filters.status;
       const fb = await api.get("/admin/reports", { params });
-      setFeedbacks(fb.data.reports || []);
+      if(request===reportsRequestRef.current)setFeedbacks(fb.data.reports || []);
     } catch (err) {
       console.error("❌ Lỗi load reports:", err);
-    }
+      if(request===reportsRequestRef.current)setReportsError('Unable to load reports. Please try again.');
+    } finally {if(request===reportsRequestRef.current)setLoadingReports(false);}
   };
 
   // Load learner progress
@@ -76,6 +101,8 @@ export default function ReportsPage() {
 
   // Change report status
   const changeStatus = async (reportId, newStatus, customReply = null) => {
+    if(savingReply)return;
+    setSavingReply(true);setReplyError('');
     try {
       // Nội dung mặc định theo status
       let defaultReply = "";
@@ -95,33 +122,20 @@ export default function ReportsPage() {
       console.log("✅ Report updated:", res.data.report);
 
       // cập nhật lại state FE
-      setFeedbacks(prev =>
-        prev.map(r => r.report_id === reportId ? res.data.report : r)
-      );
+      setFeedbacks(prev => replaceReviewedReport(prev,res.data.report,statusFilterRef.current));
       
       setShowReplyModal(false);
       setSelectedReport(null);
       setReplyContent("");
     } catch (err) {
-      console.error("❌ Lỗi cập nhật trạng thái:", err);
-    }
+      setReplyError(err.response?.data?.message || "Chưa lưu được phản hồi. Vui lòng kiểm tra lại.");
+    } finally {setSavingReply(false);}
   };
 
   const openReplyModal = (report, newStatus = null) => {
-    setSelectedReport(report);
-    const status = newStatus || report.status;
-    
-    // Set nội dung mặc định theo status
-    if (status === "dismissed") {
-      setReplyContent("Phản hồi bị từ chối vì chưa đủ căn cứ.");
-    } else if (status === "resolved") {
-      setReplyContent("Phản hồi được chấp nhận đang tiến hành xử lý");
-    } else if (report.reply) {
-      // Nếu đã có reply, hiển thị để chỉnh sửa (bỏ phần timestamp)
-      setReplyContent(report.reply.replace(/^\[Admin.*?\]\s*/, ""));
-    } else {
-      setReplyContent("");
-    }
+    const draft=reportReplyDraft(report,newStatus);
+    const existing=(newStatus===null||newStatus===report.status)&&Boolean(report.reply?.replace(/^\[Admin[^\]]*\]\s*/,''));
+    setSelectedReport(draft.report);setReplyContent(locale==='en'&&!existing?englishText(draft.reply):draft.reply);setReplyError('');
     setShowReplyModal(true);
   };
 
@@ -139,6 +153,7 @@ export default function ReportsPage() {
   const fetchLearnersProgress = async () => {
     try {
       setLoadingLearners(true);
+      setProgressError('');
       const params = {};
       if (mentorFilter) params.mentor_id = mentorFilter;
       if (learnerSearch.trim()) params.search = learnerSearch.trim();
@@ -147,6 +162,7 @@ export default function ReportsPage() {
       setLearnersProgress(res.data.learners || []);
     } catch (err) {
       console.error("❌ Lỗi load learners progress:", err);
+      setProgressError('Unable to load learner progress. Please try again.');
     } finally {
       setLoadingLearners(false);
     }
@@ -203,43 +219,36 @@ export default function ReportsPage() {
   };
 
   return (
-    <div className="report-page">
-      <h1>Báo cáo học viên, giảng viên & feedback</h1>
+    <div className="report-page admin-workspace-page admin-reports-page">
+      <header className="admin-page-heading"><div><span className="admin-page-kicker">AESP ADMIN</span><h1><UiText>Reports</UiText></h1><p><UiText>Review reports and keep an eye on learning progress.</UiText></p></div><div className="admin-page-actions"><button type="button" className="btn btn-ghost" disabled={loadingReports||loadingLearners} onClick={()=>{fetchReports(filters.status);fetchSummary();fetchLearnersProgress();}}><FiRefreshCw aria-hidden="true"/><UiText>Refresh</UiText></button></div></header>
 
       {/* Phản hồi & tố cáo - Đưa lên trước */}
-      <section>
-        <h2>Phản hồi & Tố cáo</h2>
+      <section className="casework-surface">
+        <div className="casework-section-heading"><div><h2><FiFlag aria-hidden="true"/><UiText text={"Phản hồi & Tố cáo"}/></h2><p><UiText>Review each report before updating its status.</UiText></p></div><span className="casework-count">{loadingReports?'—':feedbacks.length}</span></div>
         
         {/* Bộ lọc thời gian - Di chuyển vào trong section */}
-        <div className="filters" style={{ marginBottom: "20px" }}>
-          <label>Từ ngày:
-            <input
+        <div className="casework-report-period">
+          <label><UiText text={"Từ ngày:"} />{" "}<input
               type="date"
               value={filters.from}
-              onChange={e => setFilters({ ...filters, from: e.target.value })}
+              onChange={e => {const next={...filters,from:e.target.value};setFilters(next);fetchSummary(next);}}
             />
           </label>
-          <label>Đến ngày:
-            <input
+          <label><UiText text={"Đến ngày:"} />{" "}<input
               type="date"
               value={filters.to}
               onChange={e => {
                 const newFilters = { ...filters, to: e.target.value };
                 setFilters(newFilters);
-                if (newFilters.from && newFilters.to) {
-                  fetchSummary();
-                }
+                fetchSummary(newFilters);
               }}
             />
           </label>
+          <div className="casework-period-total"><strong>{loadingSummary||summaryError?'—':summary.total_reports}</strong><span><UiText text={"Tố cáo (theo thời gian)"}/></span></div>
         </div>
         
-        {/* Cards tổng quan - gộp vào section Phản hồi & Tố cáo */}
-        <div className="summary-cards" style={{ display: "flex", gap: "20px", margin: "20px 0" }}>
-          <div className="card"><FaCommentDots size={30} color="orange" /><p>Tố cáo (theo thời gian)</p><h3>{summary.total_reports}</h3></div>
-        </div>
-        
-        <div className="filters">
+        <div className="casework-toolbar casework-report-status">
+          <label><span className="casework-detail-label"><UiText text={"Trạng thái"}/></span>
           <select
             name="status-select"
             value={filters.status}
@@ -249,42 +258,45 @@ export default function ReportsPage() {
               fetchReports(newStatus);
             }}
           >
-            <option value="pending">Pending</option>
-            <option value="resolved">Resolved</option>
-            <option value="dismissed">Dismissed</option>
+            <UiOption value="pending">{"Pending"}</UiOption>
+            <UiOption value="resolved">{"Resolved"}</UiOption>
+            <UiOption value="dismissed">{"Dismissed"}</UiOption>
           </select>
+          </label>
+          {loadingReports&&<span role="status" className="casework-muted"><UiText text={"Đang tải..."}/></span>}
         </div>
+        {reportsError&&<p role="alert" className="casework-alert"><UiText>{reportsError}</UiText></p>}
 
-        <table className="table">
+        <div className="admin-table-wrap"><table className="table report-cases-table">
           <thead>
             <tr>
-              <th>Người dùng</th>
-              <th>Nội dung</th>
-              <th>Trạng thái</th>
-              <th>Ngày gửi</th>
-              <th>Phản hồi admin</th>
+              <th><UiText text={"Người dùng"} /></th>
+              <th><UiText text={"Nội dung"} /></th>
+              <th><UiText text={"Trạng thái"} /></th>
+              <th><UiText text={"Ngày gửi"} /></th>
+              <th><UiText text={"Phản hồi admin"} /></th>
             </tr>
           </thead>
           <tbody>
             {feedbacks.map(f => (
               <tr key={f.report_id}>
                 <td className="sender-target">
-                  <strong>Reporter:</strong>{" "}
-                  <span className="clickable" onClick={() => setSelectedUserId(f.reporter_id)}>
-                    {f.reporter_name} - {f.reporter_role}
-                  </span>
+                  <strong><UiText text={"Reporter:"} /></strong>{" "}
+                  <button type="button" className="casework-person-link" onClick={() => setSelectedUserId(f.reporter_id)}>
+                    {f.reporter_name}<small><UiText>{f.reporter_role}</UiText></small>
+                  </button>
                   <br />
-                  <strong>Target:</strong>{" "}
-                  <span className="clickable" onClick={() => setSelectedUserId(f.target_id)}>
-                    {f.target_name} - {f.target_role}
-                  </span>
+                  <strong><UiText text={"Target:"} /></strong>{" "}
+                  <button type="button" className="casework-person-link" onClick={() => setSelectedUserId(f.target_id)}>
+                    {f.target_name}<small><UiText>{f.target_role}</UiText></small>
+                  </button>
                 </td>
 
-                <td style={{ whiteSpace: "pre-line" }}>
+                <td className="casework-report-content" style={{ whiteSpace: "pre-line" }}>
                   <div>{f.content}</div>
                   {f.image_url && (
                     <div style={{ marginTop: 8 }}>
-                      <img 
+                      <AuthenticatedMedia as="img"
                         src={normalizeImageUrl(f.image_url)}
                         alt="Report image"
                         onClick={() => openMediaModal("image", f.image_url)}
@@ -303,7 +315,7 @@ export default function ReportsPage() {
                   )}
                   {f.video_url && (
                     <div style={{ marginTop: 8 }}>
-                      <video 
+                      <AuthenticatedMedia as="video"
                         src={normalizeVideoUrl(f.video_url)}
                         controls
                         onClick={() => openMediaModal("video", f.video_url)}
@@ -323,6 +335,8 @@ export default function ReportsPage() {
                 <td>
                   <div style={{ display: "flex", gap: 8, alignItems: "center", flexDirection: "column" }}>
                     <select
+                      className={`casework-status-select is-${f.status}`}
+                      aria-label={englishText('Report status')}
                       value={f.status}
                       onChange={e => {
                         const newStatus = e.target.value;
@@ -332,49 +346,47 @@ export default function ReportsPage() {
                       }}
                       style={{ padding: "4px", borderRadius: "4px", width: "100%" }}
                     >
-                      <option value="pending">Pending</option>
-                      <option value="resolved">Resolved</option>
-                      <option value="dismissed">Dismissed</option>
+                      <UiOption value="pending">{"Pending"}</UiOption>
+                      <UiOption value="resolved">{"Resolved"}</UiOption>
+                      <UiOption value="dismissed">{"Dismissed"}</UiOption>
                     </select>
                     {f.status !== "pending" && (
                       <button
                         className="btn-ghost"
                         onClick={() => openReplyModal(f)}
                         style={{ fontSize: 12, padding: "4px 8px", width: "100%" }}
-                      >
-                        Xem/Sửa phản hồi
-                      </button>
+                      >{" "}<UiText text={"Xem/Sửa phản hồi"} />{" "}</button>
                     )}
                   </div>
                 </td>
-                <td>{new Date(f.created_at).toLocaleString("vi-VN")}</td>
+                <td className="casework-date"><UiText>{new Date(f.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'short',year:'numeric'})}</UiText><small>{new Date(f.created_at).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})}</small></td>
                 <td style={{ whiteSpace: "pre-line" }}>
                   {f.reply ? (
-                    <div>{f.reply}</div>
+                    <div className="casework-report-reply">{f.reply}</div>
                   ) : (
-                    <span className="placeholder">Chưa có phản hồi</span>
+                    <span className="placeholder"><UiText text={"Chưa có phản hồi"} /></span>
                   )}
                 </td>
               </tr>
             ))}
+            {!loadingReports&&!reportsError&&feedbacks.length===0&&<tr><td colSpan="5"><div className="casework-empty"><FiFlag aria-hidden="true"/><p><UiText>No reports match this status.</UiText></p></div></td></tr>}
           </tbody>
-        </table>
+        </table></div>
       </section>
 
       {/* Tiến độ đào tạo - Danh sách learners với progress - Đưa xuống dưới */}
-      <section>
-        <h2>Tiến độ đào tạo</h2>
+      <section className="casework-surface">
+        <div className="casework-section-heading"><div><h2><FiUsers aria-hidden="true"/><UiText text={"Tiến độ đào tạo"}/></h2><p><UiText>Find a learner or filter by their assigned mentor.</UiText></p></div></div>
         
         {/* Bộ lọc và tìm kiếm */}
-        <div className="filters" style={{ marginBottom: "20px", display: "flex", gap: "16px", alignItems: "center", flexWrap: "wrap" }}>
-          <label style={{ display: "flex", alignItems: "center", gap: "8px" }}>
-            <span>Lọc theo giảng viên:</span>
+        <div className="casework-toolbar casework-progress-toolbar">
+          <label className="casework-filter-field">
+            <span><UiText text={"Lọc theo giảng viên:"} /></span>
             <select
               value={mentorFilter}
               onChange={(e) => setMentorFilter(e.target.value)}
-              style={{ padding: "6px 12px", borderRadius: "4px", border: "1px solid #ddd", minWidth: "200px" }}
             >
-              <option value="">Tất cả giảng viên</option>
+              <UiOption value="">{"Tất cả giảng viên"}</UiOption>
               {mentors.map(mentor => (
                 <option key={mentor.mentor_id} value={mentor.mentor_id}>
                   {mentor.mentor_name}
@@ -383,89 +395,77 @@ export default function ReportsPage() {
             </select>
           </label>
           
-          <label style={{ display: "flex", alignItems: "center", gap: "8px", flex: 1, minWidth: "250px" }}>
-            <FaSearch />
+          <label className="casework-search">
+            <FiSearch aria-hidden="true"/>
             <input
               type="text"
-              placeholder="Tìm theo tên hoặc số điện thoại học viên..."
+              placeholder={selectUiCopy("Tìm theo tên hoặc số điện thoại học viên...",locale).text}
               value={learnerSearch}
               onChange={(e) => setLearnerSearch(e.target.value)}
-              style={{ padding: "6px 12px", borderRadius: "4px", border: "1px solid #ddd", flex: 1 }}
+              aria-label={englishText('Find a learner')}
             />
           </label>
         </div>
+        {progressError&&<p role="alert" className="casework-alert"><UiText>{progressError}</UiText></p>}
         
         {loadingLearners ? (
-          <div>Đang tải...</div>
+          <div><UiText text={"Đang tải..."} /></div>
         ) : (
-          <table className="table">
+          <div className="admin-table-wrap"><table className="table casework-progress-table">
             <thead>
               <tr>
-                <th>Học viên</th>
-                <th>Giảng viên hỗ trợ</th>
-                <th>Tổng điểm trung bình</th>
-                <th>Số lần luyện nói</th>
-                <th>Số lần làm challenge</th>
-                <th>Thao tác</th>
+                <th><UiText text={"Học viên"} /></th>
+                <th><UiText text={"Giảng viên hỗ trợ"} /></th>
+                <th><UiText text={"Tổng điểm trung bình"} /></th>
+                <th><UiText text={"Số lần luyện nói"} /></th>
+                <th><UiText text={"Số lần làm challenge"} /></th>
+                <th><UiText text={"Thao tác"} /></th>
               </tr>
             </thead>
             <tbody>
               {learnersProgress.length === 0 ? (
                 <tr>
-                  <td colSpan="6" style={{ textAlign: "center" }}>Chưa có dữ liệu</td>
+                  <td colSpan="6" style={{ textAlign: "center" }}><UiText text={"Chưa có dữ liệu"} /></td>
                 </tr>
               ) : (
                 learnersProgress.map(learner => (
                   <tr key={learner.learner_id}>
                     <td>
-                      <span
-                        className="clickable-learner-name"
+                      <button type="button"
+                        className="casework-person-link"
                         onClick={() => setSelectedUserId(learner.user_id)}
-                        style={{ 
-                          color: "#3b82f6", 
-                          cursor: "pointer", 
-                          textDecoration: "underline",
-                          fontWeight: 500
-                        }}
                       >
                         {learner.learner_name || "N/A"}
-                      </span>
+                      </button>
                     </td>
                     <td>
                       {learner.mentor_name ? (
-                        <span
-                          className="clickable-learner-name"
+                        <button type="button"
+                          className="casework-person-link"
                           onClick={() => learner.mentor_user_id && setSelectedUserId(learner.mentor_user_id)}
-                          style={{ 
-                            color: "#3b82f6", 
-                            cursor: learner.mentor_user_id ? "pointer" : "default", 
-                            textDecoration: learner.mentor_user_id ? "underline" : "none",
-                            fontWeight: 500
-                          }}
+                          disabled={!learner.mentor_user_id}
                         >
                           {learner.mentor_name}
-                        </span>
+                        </button>
                       ) : (
-                        "Chưa gán"
+                        <UiText text={"Chưa gán"} />
                       )}
                     </td>
-                    <td>{parseFloat(learner.average_score || 0).toFixed(1)}/100</td>
-                    <td>{learner.practice_attempts || 0}</td>
-                    <td>{learner.challenge_attempts || 0}</td>
+                    <td><UiText>{learner.average_score == null ? "Chưa tổng hợp" : `${Number(learner.average_score).toFixed(1)}/100`}</UiText></td>
+                    <td><UiText>{learner.practice_attempts || 0}</UiText></td>
+                    <td><UiText>{learner.challenge_attempts || 0}</UiText></td>
                     <td>
                       <button 
                         className="btn-ghost"
                         onClick={() => handleLearnerClick(learner.learner_id)}
                         style={{ padding: "4px 8px", fontSize: 12 }}
-                      >
-                        Xem chi tiết
-                      </button>
+                      >{" "}<UiText text={"Xem chi tiết"} />{" "}</button>
                     </td>
                   </tr>
                 ))
               )}
             </tbody>
-          </table>
+          </table></div>
         )}
       </section>
 
@@ -479,47 +479,27 @@ export default function ReportsPage() {
 
       {/* Modal Reply/Note cho Admin */}
       {showReplyModal && selectedReport && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000
-        }}>
-          <div style={{
-            background: "#fff",
-            borderRadius: 8,
-            padding: 24,
-            maxWidth: 600,
-            width: "90%",
-            maxHeight: "90vh",
-            overflowY: "auto"
-          }}>
-            <h3 style={{ marginTop: 0 }}>
-              Phản hồi cho Report #{selectedReport.report_id}
+        <div className="casework-dialog-overlay">
+          <div className="casework-dialog" role="dialog" aria-modal="true" aria-label={englishText('Reply to report')}>
+            <h3 className="casework-dialog-heading">{" "}<UiText text={"Phản hồi cho Report #"} /><UiText>{selectedReport.report_id}</UiText>
             </h3>
             
             <div style={{ marginBottom: 16 }}>
-              <strong>Trạng thái:</strong> {selectedReport.status}
+              <span className={`casework-status is-${selectedReport.status}`}><UiText>{selectedReport.status}</UiText></span>
             </div>
             
             <div style={{ marginBottom: 16 }}>
-              <strong>Nội dung report:</strong>
-              <div style={{ padding: 12, background: "#f9fafb", borderRadius: 6, marginTop: 8, whiteSpace: "pre-line" }}>
+              <strong><UiText text={"Nội dung report:"} /></strong>
+              <div className="casework-note">
                 {selectedReport.content}
               </div>
             </div>
 
             {selectedReport.image_url && (
               <div style={{ marginBottom: 16 }}>
-                <strong>Hình ảnh:</strong>
+                <strong><UiText text={"Hình ảnh:"} /></strong>
                 <div style={{ marginTop: 8 }}>
-                  <img 
+                  <AuthenticatedMedia as="img"
                     src={normalizeImageUrl(selectedReport.image_url)}
                     alt="Report"
                     onClick={() => openMediaModal("image", selectedReport.image_url)}
@@ -539,9 +519,9 @@ export default function ReportsPage() {
 
             {selectedReport.video_url && (
               <div style={{ marginBottom: 16 }}>
-                <strong>Video:</strong>
+                <strong><UiText text={"Video:"} /></strong>
                 <div style={{ marginTop: 8 }}>
-                  <video 
+                  <AuthenticatedMedia as="video"
                     src={normalizeVideoUrl(selectedReport.video_url)}
                     controls
                     onClick={() => openMediaModal("video", selectedReport.video_url)}
@@ -559,41 +539,40 @@ export default function ReportsPage() {
               </div>
             )}
 
-            <label className="label">Phản hồi của Admin:</label>
+            <label className="label" htmlFor="admin-report-response"><UiText text={"Phản hồi của Admin:"} /></label>
             <textarea
+              id="admin-report-response"
               rows="5"
               value={replyContent}
               onChange={e => setReplyContent(e.target.value)}
               className="input"
               placeholder={
-                selectedReport.status === "dismissed" 
+                englishText(selectedReport.status === "dismissed"
                   ? "Phản hồi bị từ chối vì chưa đủ căn cứ. (Bạn có thể chỉnh sửa nội dung này)"
                   : selectedReport.status === "resolved"
                   ? "Phản hồi được chấp nhận đang tiến hành xử lý (Bạn có thể chỉnh sửa nội dung này)"
-                  : "Nhập phản hồi..."
+                  : "Nhập phản hồi...")
               }
             />
 
-            <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+            {replyError&&<p role="alert"><UiText>{replyError}</UiText></p>}
+            <div className="casework-dialog-actions">
               <button
                 className="btn-submit"
+                disabled={savingReply}
                 onClick={() => {
-                  const newStatus = selectedReport.status === "pending" ? "resolved" : selectedReport.status;
-                  changeStatus(selectedReport.report_id, newStatus, replyContent);
+                  changeStatus(selectedReport.report_id, selectedReport.status, replyContent);
                 }}
-              >
-                Lưu phản hồi
-              </button>
+              >{" "}<UiText text={"Lưu phản hồi"} />{" "}</button>
               <button
                 className="btn-ghost"
+                disabled={savingReply}
                 onClick={() => {
                   setShowReplyModal(false);
                   setSelectedReport(null);
                   setReplyContent("");
                 }}
-              >
-                Hủy
-              </button>
+              >{" "}<UiText text={"Hủy"} />{" "}</button>
             </div>
           </div>
         </div>
@@ -601,32 +580,10 @@ export default function ReportsPage() {
 
       {/* Modal hiển thị chi tiết progress của learner */}
       {selectedLearnerId && (
-        <div style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          background: "rgba(0,0,0,0.5)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          zIndex: 1000,
-          overflowY: "auto"
-        }}>
-          <div style={{
-            background: "#fff",
-            borderRadius: 8,
-            padding: 24,
-            maxWidth: "90%",
-            width: "1200px",
-            maxHeight: "90vh",
-            overflowY: "auto",
-            margin: "20px 0"
-          }}>
+        <div className="casework-dialog-overlay">
+          <div className="casework-dialog casework-dialog--wide" role="dialog" aria-modal="true" aria-label={englishText('Learner progress')}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-              <h3 style={{ margin: 0 }}>
-                Chi tiết tiến độ học tập - {learnersProgress.find(l => l.learner_id === selectedLearnerId)?.learner_name || "N/A"}
+              <h3 style={{ margin: 0 }}>{" "}<UiText text={"Chi tiết tiến độ học tập -"} />{" "}{learnersProgress.find(l => l.learner_id === selectedLearnerId)?.learner_name || "N/A"}
               </h3>
               <button
                 className="btn-ghost"
@@ -635,17 +592,15 @@ export default function ReportsPage() {
                   setSelectedLearnerAnalytics(null);
                 }}
                 style={{ padding: "8px 16px" }}
-              >
-                Đóng
-              </button>
+              >{" "}<UiText text={"Đóng"} />{" "}</button>
             </div>
             
             {loadingAnalytics ? (
-              <div>Đang tải dữ liệu phân tích...</div>
+              <div><UiText text={"Đang tải dữ liệu phân tích..."} /></div>
             ) : selectedLearnerAnalytics ? (
               <ProgressAnalytics analytics={selectedLearnerAnalytics} hideRecommendations={false} />
             ) : (
-              <div>Không có dữ liệu phân tích</div>
+              <div><UiText text={"Không có dữ liệu phân tích"} /></div>
             )}
           </div>
         </div>
@@ -684,7 +639,7 @@ export default function ReportsPage() {
             onClick={(e) => e.stopPropagation()}
           >
             {selectedMedia.type === "image" ? (
-              <img 
+              <AuthenticatedMedia as="img"
                 src={selectedMedia.url}
                 alt="Phóng to"
                 style={{
@@ -695,7 +650,7 @@ export default function ReportsPage() {
                 }}
               />
             ) : (
-              <video 
+              <AuthenticatedMedia as="video"
                 src={selectedMedia.url}
                 controls
                 autoPlay
@@ -730,9 +685,7 @@ export default function ReportsPage() {
                 color: "#333",
                 boxShadow: "0 2px 8px rgba(0,0,0,0.3)"
               }}
-            >
-              ×
-            </button>
+            >{" "}<UiText text={"×"} />{" "}</button>
           </div>
         </div>
       )}

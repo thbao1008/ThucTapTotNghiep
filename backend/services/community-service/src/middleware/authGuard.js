@@ -1,31 +1,48 @@
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
+import "../../../shared/loadBackendEnv.js";
+import { requireJwtSecret } from "../../../shared/jwtConfig.js";
+import pool from "../config/db.js";
+import { validateActiveSession } from "../../../shared/sessionValidation.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
+const JWT_SECRET = requireJwtSecret();
 
-const envFile = process.env.DOCKER === "true" ? "../../.env.docker" : "../../.env.local";
-const envPath = path.resolve(__dirname, envFile);
-dotenv.config({ path: envPath });
-
-export function authGuard(req, res, next) {
-  try {
-    const authHeader = req.headers.authorization;
-    if (!authHeader) {
+export function createAuthGuard({
+  sessionPool = pool,
+  verifyToken = jwt.verify,
+  jwtSecret = JWT_SECRET,
+  validateSession = validateActiveSession
+} = {}) {
+  return async function authGuard(req, res, next) {
+    const match = typeof req.headers.authorization === "string"
+      ? req.headers.authorization.match(/^Bearer\s+(\S+)$/i)
+      : null;
+    if (!match) {
       return res.status(401).json({ message: "Thiếu token" });
     }
 
-    const token = authHeader.split(" ")[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret_key");
-    req.user = decoded;
-    next();
-  } catch (err) {
-    return res.status(403).json({ message: "Token không hợp lệ" });
-  }
+    let decoded;
+    try {
+      decoded = verifyToken(match[1], jwtSecret, { algorithms: ["HS256"] });
+    } catch {
+      return res.status(403).json({ message: "Token không hợp lệ" });
+    }
+
+    try {
+      const session = await validateSession(sessionPool, match[1], decoded.id);
+      if (!session.valid) {
+        return res.status(403).json({ message: "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.", requiresLogin: true });
+      }
+      req.user = decoded;
+      req.session = session.session;
+      return next();
+    } catch (error) {
+      console.error("Unable to validate Community session:", error);
+      return res.status(503).json({ message: "Không thể xác minh phiên đăng nhập" });
+    }
+  };
 }
+
+export const authGuard = createAuthGuard();
 
 export function adminGuard(req, res, next) {
   if (req.user?.role !== 'admin') {

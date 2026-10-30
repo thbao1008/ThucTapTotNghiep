@@ -1,89 +1,33 @@
+import { UiText } from '../../i18n/UiLanguage.jsx';
 // frontend/src/components/common/Calendar.jsx
 import React, { useState, useEffect } from "react";
-import { getAuth } from "../../utils/auth";
 import api from "../../api";
+import { loadCalendarSchedules, safeMeetingHref, scheduleDayRows } from '../../utils/calendar.js';
 import { FiCalendar, FiClock, FiUser, FiVideo, FiMapPin, FiAlertCircle } from "react-icons/fi";
 import "../../styles/common-calendar.css";
 
 export default function Calendar({ learnerId, mentorId }) {
+  return <CalendarView key={`${learnerId ?? ''}:${mentorId ?? ''}`} learnerId={learnerId} mentorId={mentorId} />;
+}
+
+function CalendarView({ learnerId, mentorId }) {
   const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedSchedule, setSelectedSchedule] = useState(null);
   const [hasMentor, setHasMentor] = useState(false);
-  const [mentorIdFromLearner, setMentorIdFromLearner] = useState(null);
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
-    if (mentorId) {
-      // Nếu có mentorId (từ mentor dashboard), load trực tiếp
-      loadSchedules();
-    } else if (learnerId) {
-      // Nếu có learnerId (từ learner dashboard), kiểm tra mentor trước
-      checkMentorAndLoadSchedules();
-    } else {
-      setLoading(false);
-    }
-  }, [learnerId, mentorId, currentDate]);
-
-  const checkMentorAndLoadSchedules = async () => {
-    try {
-      setLoading(true);
-      
-      // Kiểm tra xem learner có mentor không
-      const mentorRes = await api.get(`/learners/${learnerId}/mentor`);
-      const mid = mentorRes.data?.mentor_id;
-      
-      if (mid) {
-        setMentorIdFromLearner(mid);
-        setHasMentor(true);
-        await loadSchedules();
-      } else {
-        setHasMentor(false);
-        setSchedules([]);
-      }
-    } catch (err) {
-      console.error("Error checking mentor:", err);
-      setHasMentor(false);
-      setError("Không thể kiểm tra mentor");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const loadSchedules = async () => {
-    try {
-      setLoading(true);
-      const startDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
-      const endDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59);
-      
-      let res;
-      if (mentorId) {
-        // Load schedules cho mentor
-        res = await api.get(`/mentors/${mentorId}/dashboard/schedules`, {
-          params: {
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString()
-          }
-        });
-        setSchedules(res.data.schedules || []);
-      } else if (learnerId) {
-        // Load schedules cho learner
-        res = await api.get(`/learners/${learnerId}/schedules`, {
-          params: {
-            startDate: startDate.toISOString(),
-            endDate: endDate.toISOString()
-          }
-        });
-        setSchedules(res.data || []);
-      }
-    } catch (err) {
-      console.error("Error loading schedules:", err);
-      setError(err.message || "Lỗi khi tải lịch học");
-    } finally {
-      setLoading(false);
-    }
-  };
+    const controller = new AbortController(); const { signal } = controller;
+    setLoading(true); setError(null); setSchedules([]); setHasMentor(false); setSelectedSchedule(null);
+    loadCalendarSchedules(api, { learnerId, mentorId, date: currentDate, signal }).then(result => {
+      if (!signal.aborted) { setSchedules(result.schedules); setHasMentor(result.hasMentor); }
+    }).catch(() => { if (!signal.aborted) setError('Không thể tải lịch học. Vui lòng thử lại.'); })
+      .finally(() => { if (!signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [learnerId, mentorId, currentDate, loadAttempt]);
 
   const getDaysInMonth = () => {
     const year = currentDate.getFullYear();
@@ -109,51 +53,17 @@ export default function Calendar({ learnerId, mentorId }) {
   };
 
   const getSchedulesForDate = (date) => {
-    if (!date) return [];
-    // Lấy ngày local (YYYY-MM-DD) để so sánh
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-    
-    const filtered = schedules.filter(s => {
-      // Lấy date từ string trực tiếp để tránh lỗi timezone
-      // start_time có format: "2025-11-25T08:40:00" hoặc "2025-11-25T08:40:00.000Z"
-      const startTimeStr = s.start_time;
-      let scheduleDateStr;
-      
-      if (typeof startTimeStr === 'string') {
-        // Lấy phần date (YYYY-MM-DD) từ string
-        const datePart = startTimeStr.split('T')[0];
-        scheduleDateStr = datePart;
-      } else {
-        // Fallback: dùng Date object
-        const scheduleDate = new Date(startTimeStr);
-        const sYear = scheduleDate.getFullYear();
-        const sMonth = String(scheduleDate.getMonth() + 1).padStart(2, '0');
-        const sDay = String(scheduleDate.getDate()).padStart(2, '0');
-        scheduleDateStr = `${sYear}-${sMonth}-${sDay}`;
-      }
-      
-      return scheduleDateStr === dateStr;
-    });
-    
-    // Sắp xếp theo start_time: sớm hơn ở trên, muộn hơn ở dưới
-    return filtered.sort((a, b) => {
-      const timeA = new Date(a.start_time).getTime();
-      const timeB = new Date(b.start_time).getTime();
-      return timeA - timeB;
-    });
+    return date ? scheduleDayRows(schedules, date) : [];
   };
 
   const formatTime = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+    return date.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
   };
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);
-    return date.toLocaleDateString('vi-VN', { 
+    return date.toLocaleDateString('en-GB', {
       weekday: 'long', 
       year: 'numeric', 
       month: 'long', 
@@ -220,20 +130,20 @@ export default function Calendar({ learnerId, mentorId }) {
   if (loading) {
     return (
       <div className="calendar-container">
-        <div className="loading-state">Đang tải lịch học...</div>
+        <div className="loading-state"><UiText text={"Đang tải lịch học..."} /></div>
       </div>
     );
   }
 
-  if (learnerId && !hasMentor) {
+  if (error) return <div className="calendar-container" role="alert"><UiText>{error}</UiText> <button onClick={() => setLoadAttempt(value => value + 1)}><UiText text={"Thử lại"} /></button></div>;
+
+  if (learnerId && !mentorId && !hasMentor) {
     return (
       <div className="calendar-container">
         <div className="no-mentor-message">
           <FiUser style={{ fontSize: 48, color: "#999", marginBottom: 16 }} />
-          <p>Bạn chưa được gán với mentor</p>
-          <p style={{ fontSize: 14, color: "#666", marginTop: 8 }}>
-            Vui lòng liên hệ admin để được gán mentor và xem lịch học
-          </p>
+          <p><UiText text={"Bạn chưa được gán với mentor"} /></p>
+          <p style={{ fontSize: 14, color: "#666", marginTop: 8 }}>{" "}<UiText text={"Vui lòng liên hệ admin để được gán mentor và xem lịch học"} />{" "}</p>
         </div>
       </div>
     );
@@ -243,20 +153,18 @@ export default function Calendar({ learnerId, mentorId }) {
     <div className="calendar-container">
       <div className="calendar-header">
         <h3>
-          <FiCalendar /> {mentorId ? 'Lịch dạy' : 'Lịch học'}
+          <FiCalendar /> <UiText>{mentorId ? 'Lịch dạy' : 'Lịch học'}</UiText>
         </h3>
         <div className="calendar-nav">
           <button onClick={goToPreviousMonth} className="nav-btn">‹</button>
-          <button onClick={goToToday} className="nav-btn today-btn">
-            Hôm nay
-          </button>
+          <button onClick={goToToday} className="nav-btn today-btn">{" "}<UiText text={"Hôm nay"} />{" "}</button>
           <button onClick={goToNextMonth} className="nav-btn">›</button>
         </div>
       </div>
 
       <div className="calendar-month">
         <h4>
-          {monthNames[currentDate.getMonth()]} {currentDate.getFullYear()}
+          <UiText>{monthNames[currentDate.getMonth()]}</UiText> <UiText>{currentDate.getFullYear()}</UiText>
         </h4>
       </div>
 
@@ -264,7 +172,7 @@ export default function Calendar({ learnerId, mentorId }) {
         {/* Day names */}
         <div className="calendar-weekdays">
           {dayNames.map((day, idx) => (
-            <div key={idx} className="calendar-weekday">{day}</div>
+            <div key={idx} className="calendar-weekday"><UiText>{day}</UiText></div>
           ))}
         </div>
 
@@ -282,7 +190,7 @@ export default function Calendar({ learnerId, mentorId }) {
               >
                 {date && (
                   <>
-                    <div className="day-number">{date.getDate()}</div>
+                    <div className="day-number"><UiText>{date.getDate()}</UiText></div>
                     {daySchedules.length > 0 && (
                       <div className="day-schedules">
                         {daySchedules.map((schedule) => (
@@ -294,24 +202,22 @@ export default function Calendar({ learnerId, mentorId }) {
                           >
                             <div className="schedule-block-title">{schedule.title}</div>
                             <div className="schedule-block-time">
-                              <FiClock /> {formatTime(schedule.start_time)} - {formatTime(schedule.end_time)}
+                              <FiClock /> <UiText>{formatTime(schedule.start_time)}</UiText> - <UiText>{formatTime(schedule.end_time)}</UiText>
                             </div>
                             <div className="schedule-block-type">
-                              {schedule.type === 'online' ? '🌐 Online' : '🏠 Offline'}
-                              {schedule.is_exam && <span className="exam-badge-inline">Lịch thi</span>}
-                              {schedule.status === 'paused' && <span className="paused-badge-inline">Tạm ngưng</span>}
+                              <UiText>{schedule.type === 'online' ? '🌐 Online' : '🏠 Offline'}</UiText>
+                              {schedule.is_exam && <span className="exam-badge-inline"><UiText text={"Lịch thi"} /></span>}
+                              {schedule.status === 'paused' && <span className="paused-badge-inline"><UiText text={"Tạm ngưng"} /></span>}
                             </div>
-                            {schedule.type === 'online' && schedule.meeting_link && (
+                            {schedule.type === 'online' && safeMeetingHref(schedule.meeting_link) && (
                               <div className="schedule-block-link">
                                 <FiVideo />
                                 <a 
-                                  href={schedule.meeting_link} 
+                                  href={safeMeetingHref(schedule.meeting_link)}
                                   target="_blank" 
                                   rel="noopener noreferrer"
                                   onClick={(e) => e.stopPropagation()}
-                                >
-                                  Link học
-                                </a>
+                                >{" "}<UiText text={"Link học"} />{" "}</a>
                               </div>
                             )}
                           </div>
@@ -335,43 +241,38 @@ export default function Calendar({ learnerId, mentorId }) {
               <button
                 className="close-btn"
                 onClick={() => setSelectedSchedule(null)}
-              >
-                ×
-              </button>
+              >{" "}<UiText text={"×"} />{" "}</button>
             </div>
             <div className="schedule-modal-body">
               <div className="schedule-info-item">
-                <FiCalendar /> {formatDate(selectedSchedule.start_time)}
+                <FiCalendar /> <UiText>{formatDate(selectedSchedule.start_time)}</UiText>
               </div>
               <div className="schedule-info-item">
-                <FiClock /> {formatTime(selectedSchedule.start_time)} - {formatTime(selectedSchedule.end_time)}
+                <FiClock /> <UiText>{formatTime(selectedSchedule.start_time)}</UiText> - <UiText>{formatTime(selectedSchedule.end_time)}</UiText>
               </div>
               {selectedSchedule.is_exam && (
                 <div className="schedule-info-item" style={{ color: '#ef4444', fontWeight: 600 }}>
-                  <FiAlertCircle /> Lịch thi định kỳ
-                </div>
+                  <FiAlertCircle />{" "}<UiText text={"Lịch thi định kỳ"} />{" "}</div>
               )}
               <div className="schedule-info-item">
-                <strong>Loại:</strong> {selectedSchedule.type === 'online' ? '🌐 Online' : '🏠 Offline'}
+                <strong><UiText text={"Loại:"} /></strong> <UiText>{selectedSchedule.type === 'online' ? '🌐 Online' : '🏠 Offline'}</UiText>
               </div>
-              {selectedSchedule.meeting_link && (
+              {safeMeetingHref(selectedSchedule.meeting_link) && (
                 <div className="schedule-info-item">
                   <FiVideo /> 
-                  <a href={selectedSchedule.meeting_link} target="_blank" rel="noopener noreferrer">
-                    Link meeting
-                  </a>
+                  <a href={safeMeetingHref(selectedSchedule.meeting_link)} target="_blank" rel="noopener noreferrer">{" "}<UiText text={"Link meeting"} />{" "}</a>
                 </div>
               )}
               {selectedSchedule.description && (
                 <div className="schedule-description">
-                  <strong>Mô tả:</strong>
+                  <strong><UiText text={"Mô tả:"} /></strong>
                   <p>{selectedSchedule.description}</p>
                 </div>
               )}
               {selectedSchedule.notes && (
                 <div className="schedule-notes">
-                  <strong>Ghi chú:</strong>
-                  <p>{selectedSchedule.notes}</p>
+                  <strong><UiText text={"Ghi chú:"} /></strong>
+                  <p><UiText>{selectedSchedule.notes}</UiText></p>
                 </div>
               )}
               <div className="schedule-status">
@@ -379,7 +280,7 @@ export default function Calendar({ learnerId, mentorId }) {
                   className="status-badge"
                   style={{ backgroundColor: getStatusColor(selectedSchedule) }}
                 >
-                  {getStatusLabel(selectedSchedule.status)}
+                  <UiText>{getStatusLabel(selectedSchedule.status)}</UiText>
                 </span>
               </div>
             </div>

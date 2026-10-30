@@ -1,0 +1,9 @@
+.weekly-goal { background: #fff; border: 1px solid #dbe4ee; border-radius: 12px; padding: 20px; margin-bottom: 20px; color: #203047; }
+.weekly-goal fieldset { border: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 14px; align-items: end; }
+.weekly-goal label { display: flex; flex-direction: column; gap: 6px; }
+.weekly-goal input, .weekly-goal select { padding: 9px; border: 1px solid #aab8c8; border-radius: 6px; max-width: 220px; }
+.weekly-goal button { padding: 9px 14px; border: 1px solid #2860b4; border-radius: 6px; background: #edf4ff; color: #163c74; cursor: pointer; }
+.weekly-goal button:disabled { opacity: .6; cursor: default; }
+.weekly-goal .help-text { color: #52647a; font-size: .9rem; }
+.weekly-goal [role=alert] { color: #a02323; }
+.weekly-goal li { margin-bottom: 8px; }

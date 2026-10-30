@@ -1,7 +1,9 @@
+import { UiText } from '../../i18n/UiLanguage.jsx';
 // src/components/learner/SubmissionForm.jsx
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import AudioRecorder from "../common/AudioRecorder";
 import api from "../../api";
+import { createSubmissionUpload } from "../../utils/submissionUpload.js";
 import "../../styles/challenge.css"; 
 
 export default function SubmissionForm({ learnerId, challengeId, onSubmitted = () => {}, onCancel = () => {} }) {
@@ -10,6 +12,29 @@ export default function SubmissionForm({ learnerId, challengeId, onSubmitted = (
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [submitSuccess, setSubmitSuccess] = useState("");
+  const [preparing, setPreparing] = useState(true);
+  const [ready, setReady] = useState(false);
+  const uploadRef = useRef(null);
+  const submitInFlightRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    const uploader = createSubmissionUpload(api, { learnerId, challengeId });
+    uploadRef.current = uploader;
+    submitInFlightRef.current = false;
+    setSubmitting(false);
+    setSubmitError("");
+    setSubmitSuccess("");
+    setAudioBlob(null);
+    setPreparing(true);
+    setReady(false);
+    uploader.prepare().then(() => {
+      if (active) setReady(true);
+    }).catch(() => {
+      if (active) setSubmitError("Không tải được lượt nộp. Hãy đóng và mở lại biểu mẫu.");
+    }).finally(() => { if (active) setPreparing(false); });
+    return () => { active = false; if (uploadRef.current === uploader) uploadRef.current = null; };
+  }, [learnerId, challengeId]);
 
   useEffect(() => {
     if (audioBlob) {
@@ -25,6 +50,8 @@ export default function SubmissionForm({ learnerId, challengeId, onSubmitted = (
   }, [audioBlob]);
 
   async function handleSubmit() {
+    if (!ready || submitInFlightRef.current || !uploadRef.current) return;
+    const uploader = uploadRef.current;
     setSubmitError("");
     setSubmitSuccess("");
 
@@ -33,65 +60,55 @@ export default function SubmissionForm({ learnerId, challengeId, onSubmitted = (
       return;
     }
 
+    submitInFlightRef.current = true;
     setSubmitting(true);
     try {
-      const form = new FormData();
-      form.append("learner_id", learnerId);
-      form.append("challenge_id", challengeId);
-      const file = new File([audioBlob], `record-${Date.now()}.webm`, {
-        type: audioBlob.type || "audio/webm",
-      });
-      form.append("file", file);
-
-      const resp = await api.post("/learners/submissions", form, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-
-      const data = resp.data || {};
-      const submissionId = data.submissionId ?? data.id ?? null;
-      const audio_url = data.audio_url ?? null;
-
-      setSubmitSuccess("✅ Nộp bài thành công! Đang chuyển về trang chi tiết...");
-      onSubmitted({ submissionId, audio_url });
+      const result = await uploader.submit(audioBlob);
+      if (!result || uploadRef.current !== uploader) return;
+      setReady(false);
+      setSubmitSuccess(result.processingFailed ? "Bài đã được lưu nhưng chưa đưa vào xử lý. Hãy kiểm tra lịch sử; không cần nộp lại." : "✅ Nộp bài thành công! Đang chuyển về trang chi tiết...");
+      try { await onSubmitted(result); } catch (error) { console.error("Submission display refresh failed", error); }
     } catch (err) {
       console.error("❌ Submit error", err);
-      setSubmitError("Có lỗi khi nộp bài. Vui lòng thử lại.");
+      if (uploadRef.current === uploader) {
+        if (err.code === "SUBMISSION_ATTEMPT_CHANGED") setReady(false);
+        setSubmitError(err.message || "Có lỗi khi nộp bài. Hãy kiểm tra lịch sử trước khi thử lại.");
+      }
     } finally {
-      setSubmitting(false);
+      if (uploadRef.current === uploader) { submitInFlightRef.current = false; setSubmitting(false); }
     }
   }
 
   return (
     <div className="challenge-submission-card">
       <div className="challenge-submission-header">
-        <h3 className="submission-title">Nộp bài nói</h3>
+        <h3 className="submission-title"><UiText text={"Nộp bài nói"} /></h3>
         <div style={{ display: "flex", gap: 8 }}>
           <button
             type="button"
-            className={`btn-submit ${submitting || !audioBlob ? "is-disabled" : ""}`}
+            className={`btn-submit ${submitting || !ready || !audioBlob ? "is-disabled" : ""}`}
             onClick={handleSubmit}
-            disabled={submitting || !audioBlob}
+            disabled={submitting || !ready || !audioBlob}
           >
-            {submitting ? <span className="spinner" /> : <span className="icon-send">➤</span>}
-            Nộp bài
-          </button>
-          <button type="button" className="btn-ghost" onClick={onCancel}>Hủy</button>
+            {submitting ? <span className="spinner" /> : <span className="icon-send">➤</span>}{" "}<UiText text={"Nộp bài"} />{" "}</button>
+          <button type="button" className="btn-ghost" onClick={onCancel} disabled={submitting}><UiText text={"Hủy"} /></button>
         </div>
       </div>
 
       <div className="challenge-submission-body">
-        <AudioRecorder onRecorded={setAudioBlob} isSubmitting={submitting} />
+        {preparing && <p role="status"><UiText text={"Đang tải lượt nộp bài..."} /></p>}
+        <AudioRecorder onRecorded={setAudioBlob} isSubmitting={submitting || preparing} />
 
         {previewUrl && (
           <div style={{ marginTop: 10 }}>
-            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}>Xem trước bản ghi</div>
+            <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 6 }}><UiText text={"Xem trước bản ghi"} /></div>
             <audio controls src={previewUrl} style={{ width: "100%", borderRadius: 8 }} />
           </div>
         )}
 
         {(submitError || submitSuccess) && (
           <div className={`status-row ${submitError ? "error" : "success"}`} style={{ marginTop: 12 }}>
-            {submitError || submitSuccess}
+            <UiText>{submitError || submitSuccess}</UiText>
           </div>
         )}
       </div>

@@ -4,12 +4,31 @@ import * as mentorAiService from "../services/mentorAiService.js";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import pool from "../config/db.js";
 
 function getProjectRoot() {
   const __filename = fileURLToPath(import.meta.url);
   const __dirname = path.dirname(__filename);
-  // Go up 3 levels from current file: controllers -> src -> mentor-service -> services -> backend
-  return path.resolve(__dirname, "..", "..", "..");
+  return path.resolve(__dirname, "..", "..", "..", "..");
+}
+
+/**
+ * Lấy mentorId từ user ID trong JWT (req.user.id).
+ * Admin bypass — trả null để không giới hạn ownership.
+ */
+async function getOwnMentorId(req) {
+  if (req.user?.role?.toLowerCase() === 'admin') return null;
+  const result = await pool.query("SELECT id FROM mentors WHERE user_id = $1", [req.user.id]);
+  return result.rows[0]?.id || null;
+}
+
+/** Kiểm tra kết quả ownership check và trả 403 nếu forbidden */
+function checkOwnershipResult(result, res) {
+  if (result && result.forbidden === true) {
+    res.status(403).json({ message: "Bạn không có quyền thao tác với tài nguyên này" });
+    return true;
+  }
+  return false;
 }
 
 /* ========== Mentor CRUD ========== */
@@ -55,6 +74,23 @@ export async function updateMentor(req, res) {
   }
 }
 
+export async function updateOwnProfile(req, res) {
+  const body = req.body;
+  if (!body || typeof body.bio !== 'string' || body.bio.length > 4000 || Object.keys(body).some(key => key !== 'bio')) {
+    return res.status(400).json({ message: 'Provide a bio of up to 4000 characters.' });
+  }
+  try {
+    const { rows: [mentor] } = await pool.query(
+      'UPDATE mentors SET bio=$1 WHERE id=$2 AND user_id=$3 RETURNING id,bio',
+      [body.bio.trim(), req.params.id, req.user.id]
+    );
+    if (!mentor) return res.status(404).json({ message: 'Mentor not found' });
+    return res.json({ mentor });
+  } catch {
+    return res.status(503).json({ message: 'Unable to save your profile. Please try again.' });
+  }
+}
+
 export async function removeMentor(req, res) {
   try {
     await mentorService.removeMentor(req.params.id);
@@ -81,6 +117,21 @@ export async function getLearnersByMentor(req, res) {
   }
 }
 
+export async function getAssignedLearnerProgress(req, res) {
+  try {
+    const learnerId = Number(req.params.learnerId);
+    if (!Number.isSafeInteger(learnerId) || learnerId <= 0) {
+      return res.status(400).json({ error: "Invalid learner id" });
+    }
+    const progress = await mentorService.getAssignedLearnerProgress(learnerId, req.mentorId);
+    if (!progress) return res.status(404).json({ message: "Learner not found" });
+    return res.json(progress);
+  } catch (err) {
+    console.error("getAssignedLearnerProgress error - mentor-service", err);
+    return res.status(500).json({ error: "Server error" });
+  }
+}
+
 export async function getMentorByUserId(req, res) {
   try {
     const userId = req.params.userId;
@@ -97,7 +148,8 @@ export async function getMentorByUserId(req, res) {
 
 export async function updateLearnerNote(req, res) {
   try {
-    const learner = await mentorService.updateLearnerNote(req.params.learnerId, req.body.note);
+    if(typeof req.body.note!=='string'||req.body.note.length>5000)return res.status(400).json({message:'Ghi chú cần là văn bản tối đa 5000 ký tự.'});
+    const learner = await mentorService.updateLearnerNote(req.params.learnerId, req.body.note, req.mentorId);
     if (!learner) return res.status(404).json({ message: "Learner not found" });
     res.json({ learner });
   } catch (err) {
@@ -149,16 +201,16 @@ export async function getPublishedResources(req, res) {
 export async function createResource(req, res) {
   try {
     console.log(`[createResource] Request received: mentorId=${req.params.id}, hasFile=${!!req.file}, fileField=${req.file?.fieldname}, filename=${req.file?.filename}`);
-    
+
     let file_url = req.body.file_url;
     if (req.file) {
       // Verify file was saved
       const backendDir = getProjectRoot();
       const uploadsDir = path.resolve(backendDir, "uploads");
       const filePath = path.join(uploadsDir, req.file.filename);
-      
+
       console.log(`[createResource] Checking file: path=${filePath}, exists=${fs.existsSync(filePath)}`);
-      
+
       if (!fs.existsSync(filePath)) {
         console.error(`[createResource] File was not saved! Path: ${filePath}`);
         console.error(`[createResource] req.file:`, JSON.stringify({
@@ -170,7 +222,7 @@ export async function createResource(req, res) {
         }, null, 2));
         return res.status(500).json({ error: "File upload failed - file not saved", path: filePath });
       }
-      
+
       console.log(`[createResource] File uploaded successfully: ${req.file.filename}, path: ${filePath}, size: ${fs.statSync(filePath).size} bytes`);
       file_url = `/uploads/${req.file.filename}`;
     } else {
@@ -205,7 +257,7 @@ export async function createResource(req, res) {
 export async function updateResource(req, res) {
   try {
     const fields = {};
-    
+
     if (req.file) {
       fields.file_url = `/uploads/${req.file.filename}`;
     }
@@ -217,7 +269,11 @@ export async function updateResource(req, res) {
       fields.is_published = req.body.is_published === 'true' || req.body.is_published === true;
     }
 
-    const resource = await mentorService.updateResource(req.params.id, fields);
+    const ownMentorId = await getOwnMentorId(req);
+    const resource = await mentorService.updateResource(req.params.id, fields, ownMentorId);
+
+    if (checkOwnershipResult(resource, res)) return;
+    if (!resource) return res.status(404).json({ message: "Resource not found" });
 
     // Format file_url to absolute URL (giống code cũ trong src)
     // Sử dụng x-forwarded-host và x-forwarded-proto từ API Gateway
@@ -237,7 +293,10 @@ export async function updateResource(req, res) {
 
 export async function deleteResource(req, res) {
   try {
-    await mentorService.deleteResource(req.params.id);
+    const ownMentorId = await getOwnMentorId(req);
+    const result = await mentorService.deleteResource(req.params.id, ownMentorId);
+    if (checkOwnershipResult(result, res)) return;
+    if (!result) return res.status(404).json({ message: "Resource not found" });
     res.json({ message: "Resource deleted" });
   } catch (err) {
     console.error("deleteResource error - mentor-service mentorController.js:200", err);
@@ -249,7 +308,10 @@ export async function toggleResourceVisibility(req, res) {
   try {
     const { id } = req.params;
     const { is_published } = req.body;
-    const updated = await mentorService.toggleResourceVisibility(id, is_published);
+    const ownMentorId = await getOwnMentorId(req);
+    const updated = await mentorService.toggleResourceVisibility(id, is_published, ownMentorId);
+    if (checkOwnershipResult(updated, res)) return;
+    if (!updated) return res.status(404).json({ message: "Resource not found" });
     res.json({ resource: updated });
   } catch (err) {
     console.error("toggleResourceVisibility error:", err);
@@ -261,11 +323,14 @@ export async function toggleResourceVisibility(req, res) {
 
 export async function mentorCreateReport(req, res) {
   try {
-    const { reporter_id, target_id, content } = req.body;
-    
+    const { target_id, content } = req.body;
+    if (!req.user?.id || !req.assignedLearnerId || !target_id || !content?.trim()) {
+      return res.status(400).json({ message: "Missing assigned learner or report content" });
+    }
+
     let image_url = null;
     let video_url = null;
-    
+
     if (req.files) {
       if (req.files.image && req.files.image[0]) {
         image_url = `/uploads/${req.files.image[0].filename}`;
@@ -274,10 +339,10 @@ export async function mentorCreateReport(req, res) {
         video_url = `/uploads/${req.files.video[0].filename}`;
       }
     }
-    
-    const report = await mentorService.mentorCreateReport({ 
-      reporter_id, 
-      target_id, 
+
+    const report = await mentorService.mentorCreateReport({
+      reporter_id: req.user.id,
+      target_id,
       content,
       image_url,
       video_url
@@ -286,7 +351,7 @@ export async function mentorCreateReport(req, res) {
   } catch (err) {
     console.error("mentorCreateReport error - mentor-service mentorController.js:246", err);
     if (err.canReport === false) {
-      return res.status(400).json({ 
+      return res.status(400).json({
         message: err.message,
         canReport: false,
         hoursRemaining: err.hoursRemaining
@@ -385,7 +450,11 @@ export async function createChallenge(req, res) {
 export async function deleteTopic(req, res) {
   try {
     const topicId = req.params.topicId;
-    const deleted = await mentorService.deleteTopic(topicId);
+    const ownMentorId = await getOwnMentorId(req);
+    const deleted = await mentorService.deleteTopic(topicId, ownMentorId);
+    if (deleted && deleted.forbidden) {
+      return res.status(403).json({ message: "Bạn không có quyền xóa topic này" });
+    }
     if (!deleted) {
       return res.status(404).json({ message: "Topic not found" });
     }
@@ -402,7 +471,11 @@ export async function deleteChallenge(req, res, next) {
     if (!id) {
       return res.status(400).json({ error: "Thiếu id challenge" });
     }
-    const deleted = await mentorService.deleteChallenge(id);
+    const ownMentorId = await getOwnMentorId(req);
+    const deleted = await mentorService.deleteChallenge(id, ownMentorId);
+    if (deleted && deleted.forbidden) {
+      return res.status(403).json({ error: "Bạn không có quyền xóa challenge này" });
+    }
     if (!deleted) {
       return res.status(404).json({ error: "Challenge không tồn tại" });
     }
@@ -448,9 +521,7 @@ export async function editChallengeAI(req, res) {
 export async function chatWithAI(req, res) {
   try {
     const { message, context } = req.body || {};
-    // Lấy token từ request headers để truyền vào AI Service
-    const authToken = req.headers.authorization?.replace("Bearer ", "") || null;
-    const suggestion = await mentorAiService.chatWithAI(message, context, authToken);
+    const suggestion = await mentorAiService.chatWithAI(message, context);
     return res.json({ suggestion });
   } catch (err) {
     console.error("chatWithAI error - mentor-service mentorController.js:416", err);
@@ -465,7 +536,12 @@ export async function updateChallenge(req, res) {
 
     if (!id) return res.status(400).json({ message: "Thiếu id challenge" });
 
-    const updated = await mentorService.updateChallenge(id, { title, description, type, level });
+    const ownMentorId = await getOwnMentorId(req);
+    const updated = await mentorService.updateChallenge(id, { title, description, type, level }, ownMentorId);
+
+    if (checkOwnershipResult(updated, res)) return;
+    if (!updated) return res.status(404).json({ message: "Challenge not found" });
+
     return res.json({ challenge: updated });
   } catch (err) {
     console.error("updateChallenge error - mentor-service mentorController.js:431", err);
@@ -478,9 +554,7 @@ export async function improveChallengeDraft(req, res) {
     const { content } = req.body || {};
     if (!content) return res.status(400).json({ message: "Thiếu content để AI cải thiện" });
 
-    // Extract auth token from request headers
-    const authToken = req.headers.authorization?.replace("Bearer ", "") || null;
-    const aiResult = await mentorAiService.editChallengeAI(content, "", authToken);
+    const aiResult = await mentorAiService.editChallengeAI(content, "");
     const issues = aiResult?.issues || [];
     return res.json({ challenge: aiResult, issues });
   } catch (err) {
@@ -506,7 +580,7 @@ export async function getSubmission(req, res) {
     const protocol = req.get("x-forwarded-proto") || req.protocol || "http";
     const host = req.get("x-forwarded-host") || req.get("host") || "localhost:4000";
     const baseUrl = `${protocol}://${host}`;
-    
+
     // Format submission audio_url (learner's audio)
     if (result.submission?.audio_url) {
       const audioUrl = result.submission.audio_url;
@@ -527,7 +601,7 @@ export async function getSubmission(req, res) {
         result.submission.audioUrl = audioUrl;
       }
     }
-    
+
     // Format mentor review audio_url
     if (result.submission?.mentor_review?.audio_url) {
       const audioUrl = result.submission.mentor_review.audio_url;
@@ -573,7 +647,22 @@ export async function postReview(req, res) {
     const mentorId = req.params.mentorId;
     if (!mentorId) return res.status(400).json({ error: "Missing mentorId in path" });
 
+    const normalizedSubmissionId = Number(submissionId);
+    if (!Number.isSafeInteger(normalizedSubmissionId) || normalizedSubmissionId <= 0) {
+      return res.status(400).json({ error: "Invalid submission id" });
+    }
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      return res.status(400).json({ error: "Invalid review payload" });
+    }
+    const reviewFields = ["final_score", "feedback", "pronunciation_score", "fluency_score", "audio_url"];
+    if (!reviewFields.some(field => Object.prototype.hasOwnProperty.call(req.body, field))) {
+      return res.status(400).json({ error: "At least one review field is required" });
+    }
+
     const { final_score, feedback, pronunciation_score, fluency_score, audio_url } = req.body;
+    if (feedback !== undefined && feedback !== null && typeof feedback !== "string") {
+      return res.status(400).json({ error: "Feedback must be a string" });
+    }
 
     function isValidAudioUrl(u) {
       if (!u) return true;
@@ -597,16 +686,19 @@ export async function postReview(req, res) {
       audio_url
     };
 
-    const result = await mentorService.saveMentorReview(submissionId, mentorId, payload);
+    const result = await mentorService.saveMentorReview(normalizedSubmissionId, mentorId, payload);
     if (!result.ok) return res.status(result.status || 400).json({ error: result.message || "Cannot save review" });
 
-    return res.json({ 
-      success: true, 
+    return res.json({
+      success: true,
       review: result.review,
-      feedback_id: result.feedback_id 
+      feedback_id: result.feedback_id
     });
   } catch (err) {
     console.error("mentorController.postReview error - mentor-service mentorController.js:544", err);
+    if (err.code === "MENTOR_SCORE_INVALID") {
+      return res.status(400).json({ error: err.message, code: err.code });
+    }
     return res.status(500).json({ error: "Server error" });
   }
 }
@@ -616,8 +708,9 @@ export async function listReviews(req, res) {
     const mentorId = req.params.mentorId;
     if (!mentorId) return res.status(400).json({ error: "Missing mentorId in path" });
 
-    const limit = Math.min(200, Number(req.query.limit) || 50);
-    const offset = Number(req.query.offset) || 0;
+    const limit = req.query.limit===undefined?50:Number(req.query.limit);
+    const offset = req.query.offset===undefined?0:Number(req.query.offset);
+    if(!Number.isSafeInteger(limit)||limit<1||limit>200||!Number.isSafeInteger(offset)||offset<0||offset>2147483647)return res.status(400).json({error:'Invalid pagination'});
     const rows = await mentorService.listReviewsByMentor(mentorId, { limit, offset });
     return res.json({ reviews: rows });
   } catch (err) {
@@ -625,4 +718,3 @@ export async function listReviews(req, res) {
     return res.status(500).json({ error: "Server error" });
   }
 }
-

@@ -1,3 +1,5 @@
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 import React from "react";
 import Modal from "../common/Modal.jsx";
 import "../../styles/admin-packages.css";
@@ -14,11 +16,11 @@ export default function PackageEditor({ pkg, onClose, onSave }) {
   }
 
   return (
-    <Modal title={pkg ? "Chỉnh sửa gói" : "Tạo gói mới"} onClose={onClose}>
+    <Modal title={englishText(pkg ? "Chỉnh sửa gói" : "Tạo gói mới")} onClose={onClose}>
       <div className="package-editor">
         <form onSubmit={handleSave}>
           <div className="form-group">
-            <label>Tên gói</label>
+            <label><UiText text={"Tên gói"} /></label>
             <input 
               className="input" 
               value={name} 
@@ -27,7 +29,7 @@ export default function PackageEditor({ pkg, onClose, onSave }) {
             />
           </div>
           <div className="form-group">
-            <label>Giá (VNĐ)</label>
+            <label><UiText text={"Giá (VNĐ)"} /></label>
             <input 
               className="input" 
               type="number" 
@@ -38,7 +40,7 @@ export default function PackageEditor({ pkg, onClose, onSave }) {
             />
           </div>
           <div className="form-group">
-            <label>Mô tả</label>
+            <label><UiText text={"Mô tả"} /></label>
             <textarea 
               className="input" 
               value={description} 
@@ -47,8 +49,8 @@ export default function PackageEditor({ pkg, onClose, onSave }) {
             />
           </div>
           <div className="form-actions">
-            <button type="button" className="btn btn-ghost" onClick={onClose}>Hủy</button>
-            <button type="submit" className="btn btn-primary">Lưu</button>
+            <button type="button" className="btn btn-ghost" onClick={onClose}><UiText text={"Hủy"} /></button>
+            <button type="submit" className="btn btn-primary"><UiText text={"Lưu"} /></button>
           </div>
         </form>
       </div>

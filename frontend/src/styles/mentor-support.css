@@ -1,0 +1,9 @@
+.mentor-support-panel { background:#fff; border:1px solid #dce1ea; border-radius:12px; padding:24px; margin:24px 0; color:#172033; }
+.mentor-support-panel > header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:12px; }
+.mentor-support-panel h2 { margin:0; font-size:22px; }
+.mentor-support-panel > p { line-height:1.6; color:#4b5563; }
+.mentor-support-learner { border-top:1px solid #e5e7eb; padding:18px 0; }
+.mentor-support-learner h3 { margin:0 0 10px; }
+.mentor-support-learner ul { padding-left:22px; line-height:1.7; }
+.mentor-support-actions { display:flex; flex-wrap:wrap; gap:16px; margin-top:12px; }
+.mentor-support-actions a { color:#214bc4; text-decoration:underline; font-weight:600; }

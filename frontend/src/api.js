@@ -1,6 +1,6 @@
 // api.js
 import axios from "axios";
-import { clearAuth } from "./utils/auth";
+import { isExpiredSessionResponse, readStoredAuthToken } from './utils/sessionExpiry.js';
 
 // Tạo instance Axios với baseURL chuẩn
 // Dùng relative URL để đi qua Vite proxy
@@ -21,19 +21,10 @@ api.interceptors.request.use((config) => {
     delete config.headers['Content-Type'];
   }
   
-  const data =
-    localStorage.getItem("aesp_auth_v1") ||
-    sessionStorage.getItem("aesp_auth_v1");
-
-  if (data) {
-    try {
-      const parsed = JSON.parse(data);
-      if (parsed?.token) {
-        config.headers.Authorization = `Bearer ${parsed.token}`;
-      }
-    } catch (e) {
-      console.error("Parse token error - api.js:23", e);
-    }
+  const authToken = readStoredAuthToken();
+  if (authToken) {
+    config.headers.Authorization = `Bearer ${authToken}`;
+    config.aespAuthToken = authToken;
   }
   return config;
 });
@@ -47,13 +38,22 @@ api.interceptors.response.use(
       const status = error.response.status;
       const data = error.response.data;
       
-      // Xử lý lỗi session không hợp lệ (403 với requiresLogin)
-      // Không tự động logout ở đây, để AuthContext xử lý và hiển thị modal
-      if (status === 403 && data?.requiresLogin) {
+      // Role/package denials are not login expiry. Ignore stale failures from a previous login.
+      if (isExpiredSessionResponse(status, data, error.config?.aespAuthToken, readStoredAuthToken())) {
         error.message = data.message || "Phiên đăng nhập đã hết hạn. Vui lòng đăng nhập lại.";
         error.requiresLogin = true;
         // Trigger event để AuthContext biết và hiển thị modal
-        window.dispatchEvent(new CustomEvent('session-expired'));
+        window.dispatchEvent(new CustomEvent('session-expired', { detail: { token: error.config.aespAuthToken } }));
+      }
+
+      // Gói học hết hạn không đồng nghĩa session bị thu hồi. Giữ người dùng đăng
+      // nhập để họ vẫn xem được profile/tiến độ và nhận hướng dẫn gia hạn.
+      if (status === 403 && data?.expired) {
+        error.message = data.message || "Gói dịch vụ không còn hiệu lực. Vui lòng liên hệ hỗ trợ.";
+        error.packageExpired = true;
+        window.dispatchEvent(new CustomEvent('package-expired', {
+          detail: { message: error.message }
+        }));
       }
       
       // Xử lý lỗi banned user (403 với banned)

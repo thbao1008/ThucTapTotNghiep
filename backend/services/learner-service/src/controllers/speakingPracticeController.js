@@ -3,48 +3,48 @@ import * as speakingPracticeService from "../services/speakingPracticeService.js
 import pool from "../config/db.js";
 import path from "path";
 import fs from "fs";
+import {
+  deriveSpeakingPracticeSummaryScore,
+  getSpeakingPracticeAnalysisStatus
+} from "../utils/speakingPracticeAnalysis.js";
+import { removeFile } from "../utils/audioUpload.js";
+import {practiceRetention} from '../utils/practiceRetentionRuntime.js';
+import {ensureStoryRetentionSchema,retireExpiredPracticeLogins} from '../../../shared/practiceRetention.js';
+import { countSpeakingWords, getSpeakingDifficulty, parseSpeakingLevel } from '../utils/speakingPrompt.js';
 
 /**
  * Tạo session mới cho luyện nói
  */
 export async function createPracticeSession(req, res) {
-  let actualLearnerId;
+  const actualLearnerId = req.learnerId;
   try {
-    const { learner_id, user_id, level } = req.body;
-
-    // Nếu có user_id, lookup learner_id
-    actualLearnerId = learner_id;
-    if (!actualLearnerId && user_id) {
-      const learnerRes = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (learnerRes.rows[0]) {
-        actualLearnerId = learnerRes.rows[0].id;
-      }
-    }
-
-    // Level luôn là 1 (đã gộp 3 levels thành 1)
-    const fixedLevel = 1;
+    const selectedLevel = parseSpeakingLevel(req.body?.level);
 
     if (!actualLearnerId) {
       return res.status(400).json({ 
-        message: "Invalid learner_id",
-        debug: { learner_id: actualLearnerId, level, user_id }
+        message: "Invalid learner identity"
       });
     }
 
+    await ensureStoryRetentionSchema(pool);
+    await retireExpiredPracticeLogins(pool,(id,learnerId)=>practiceRetention.end(id,learnerId),{userId:req.user.id});
     const session = await speakingPracticeService.createPracticeSession(
       actualLearnerId,
-      fixedLevel
+      selectedLevel,
+      {authSessionId:req.session?.id,userId:req.user.id}
     );
 
     res.json({
       session_id: session.id,
       level: session.level,
+      difficulty: getSpeakingDifficulty(session.level).name,
       status: session.status
     });
   } catch (err) {
+    if (err.code === 'INVALID_SPEAKING_LEVEL') return res.status(400).json({ message: err.message, code: err.code });
+    if (err.code === "SPEAKING_SESSION_INCOMPLETE") {
+      return res.status(400).json({ message: err.message, incomplete_session: err.incomplete_session });
+    }
     console.error("❌ createPracticeSession error:", err);
     // Nếu là lỗi về session đang dở dang, trả về 400 với thông tin session
     if (err.message && err.message.includes("chưa hoàn thành")) {
@@ -82,22 +82,9 @@ export async function createPracticeSession(req, res) {
  */
 export async function getIncompleteSession(req, res) {
   try {
-    const { learner_id, user_id } = req.query;
-
-    // Nếu có user_id, lookup learner_id
-    let actualLearnerId = learner_id;
-    if (!actualLearnerId && user_id) {
-      const learnerRes = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (learnerRes.rows[0]) {
-        actualLearnerId = learnerRes.rows[0].id;
-      }
-    }
-
+    const actualLearnerId = req.learnerId;
     if (!actualLearnerId) {
-      return res.status(400).json({ message: "learner_id or user_id is required" });
+      return res.status(403).json({ message: "Learner identity is required" });
     }
 
     const result = await pool.query(
@@ -138,22 +125,21 @@ export async function getIncompleteSession(req, res) {
 export async function getPrompt(req, res) {
   try {
     const { sessionId } = req.params;
-    const { round, level } = req.query;
-
-    const roundNumber = parseInt(round) || 1;
-    const sessionLevel = parseInt(level) || 1;
-
-    // Lấy learner_id từ session nếu có
-    let learnerId = null;
-    if (sessionId) {
-      const sessionRes = await pool.query(
-        `SELECT learner_id FROM speaking_practice_sessions WHERE id = $1`,
-        [sessionId]
-      );
-      if (sessionRes.rows[0]) {
-        learnerId = sessionRes.rows[0].learner_id;
-      }
+    const { round } = req.query;
+    const roundNumber = round === undefined ? 1 : Number(round);
+    if (!Number.isInteger(roundNumber) || roundNumber < 1 || roundNumber > 10) {
+      return res.status(400).json({ message: 'Round number must be between 1 and 10.' });
     }
+    // The persisted selection is authoritative, regardless of query parameters.
+    const sessionRes = await pool.query(
+      `SELECT learner_id, level, status, mode FROM speaking_practice_sessions WHERE id = $1 AND learner_id = $2`,
+      [sessionId, req.learnerId]
+    );
+    const session = sessionRes.rows[0];
+    if (!session || session.mode !== 'practice') return res.status(404).json({ message: 'Practice session not found.' });
+    if (session.status !== 'active') return res.status(409).json({ message: 'This practice session has ended.', code: 'PRACTICE_SESSION_ENDED' });
+    const sessionLevel = parseSpeakingLevel(session.level);
+    const learnerId = session.learner_id;
 
     // Lấy prompt từ AI (async) với sessionId để track topics đã dùng
     const prompt = await speakingPracticeService.getPromptForRound(
@@ -169,11 +155,14 @@ export async function getPrompt(req, res) {
     res.json({
       prompt,
       time_limit: timeLimit,
+      level: sessionLevel,
+      difficulty: getSpeakingDifficulty(sessionLevel).name,
+      word_count: countSpeakingWords(prompt),
       round: roundNumber
     });
   } catch (err) {
     console.error("❌ getPrompt error:", err);
-    res.status(500).json({ message: "Server error" });
+    res.status(err.status || 500).json({ message: err.status === 502 ? 'A suitable sentence could not be generated. Please try again.' : 'Server error', ...(err.code ? { code: err.code } : {}) });
   }
 }
 
@@ -181,15 +170,8 @@ export async function getPrompt(req, res) {
  * Lưu vòng nói (trả về ngay, xử lý ở background)
  */
 export async function saveRound(req, res) {
+  let keepUploadedFile = false;
   try {
-    console.log("📥 Controller received request body keys:", Object.keys(req.body));
-    console.log("📥 Controller received files:", req.file ? req.file.filename : 'no file');
-    console.log("📥 Raw body data:", {
-      prompt: req.body.prompt,
-      web_speech_transcript: req.body.web_speech_transcript,
-      web_speech_highlights: req.body.web_speech_highlights
-    });
-    
     const { sessionId } = req.params;
     const { round_number, time_taken } = req.body;
 
@@ -207,22 +189,11 @@ export async function saveRound(req, res) {
     let webSpeechHighlights = null;
     try {
       if (req.body.web_speech_highlights) {
-        console.log("🔍 Raw web_speech_highlights from FormData:", typeof req.body.web_speech_highlights, req.body.web_speech_highlights);
         webSpeechHighlights = JSON.parse(req.body.web_speech_highlights);
-        console.log("✅ Parsed web_speech_highlights:", typeof webSpeechHighlights, webSpeechHighlights);
       }
     } catch (parseErr) {
-      console.log("❌ Failed to parse web_speech_highlights:", req.body.web_speech_highlights, parseErr);
+      console.warn("❌ Invalid web_speech_highlights JSON:", parseErr.message);
     }
-    
-    console.log("🎤 Controller received Web Speech data:", {
-      hasTranscript: !!webSpeechTranscript,
-      transcriptLength: webSpeechTranscript ? webSpeechTranscript.length : 0,
-      highlightsRaw: req.body.web_speech_highlights,
-      highlightsParsed: webSpeechHighlights,
-      highlightsLength: webSpeechHighlights ? webSpeechHighlights.length : 0,
-      highlightsTypes: webSpeechHighlights ? webSpeechHighlights.map(h => typeof h) : []
-    });
     
     // Lưu ngay, xử lý ở background
     const round = await speakingPracticeService.saveRound(
@@ -235,14 +206,29 @@ export async function saveRound(req, res) {
       webSpeechHighlights // Truyền Web Speech highlights
     );
 
+    keepUploadedFile = !round.idempotent_replay;
+    if (round.idempotent_replay && req.file?.path) {
+      await removeFile(req.file.path);
+    }
+
     // Trả về ngay, không đợi analysis
     res.json({
       round_id: round.id,
-      status: "processing", // Đang xử lý ở background
-      message: "Audio đã được lưu. Đang xử lý phân tích..."
+      status: getSpeakingPracticeAnalysisStatus(round.analysis),
+      replayed: Boolean(round.idempotent_replay),
+      message: round.idempotent_replay
+        ? "Vòng này đã được gửi trước đó."
+        : "Audio đã được lưu. Đang xử lý phân tích..."
     });
   } catch (err) {
     console.error("❌ saveRound error:", err);
+    if (!keepUploadedFile && req.file?.path) {
+      try {
+        await removeFile(req.file.path);
+      } catch (cleanupError) {
+        console.error("❌ Could not remove failed round upload:", cleanupError);
+      }
+    }
     res.status(500).json({ message: err.message || "Server error" });
   }
 }
@@ -274,8 +260,12 @@ export async function getRoundAnalysis(req, res) {
 
     res.json({
       round_id: round.id,
+      status: getSpeakingPracticeAnalysisStatus(round.analysis),
       score: round.score,
       analysis: analysis,
+      assessment_type: analysis?.assessment_type || "transcript_match",
+      assessment_scope: analysis?.assessment_scope || "content_match_only",
+      pronunciation_assessed: analysis?.pronunciation_assessed === true,
       feedback: analysis?.feedback || "",
       errors: analysis?.errors || [],
       corrected_text: analysis?.corrected_text || "",
@@ -313,9 +303,6 @@ export async function checkTranslation(req, res) {
     const prompt = roundRes.rows[0].prompt;
 
     // Dùng AI để kiểm tra translation (tương đối, không cần chính xác 100%)
-    const aiService = await import("../services/aiService.js");
-    const assistantAIService = await import("../services/assistantAIService.js");
-    
     const checkPrompt = `You are an English-Vietnamese translation checker. Check if the Vietnamese translation is CORRECT or RELATIVELY CORRECT (meaning matches approximately) for the English text.
 
 English text: "${prompt}"
@@ -332,48 +319,19 @@ IMPORTANT:
   "feedback": "<brief feedback in Vietnamese if incorrect, or 'Chính xác! Bạn đã hiểu đúng nghĩa.' if correct>"
 }`;
 
-    // Gọi cả OpenRouter và AI phụ trợ song song
-    const [openRouterResponse, assistantResponse] = await Promise.allSettled([
-      aiService.callOpenRouter(
-        [{ role: "user", content: checkPrompt }],
-        { 
-          model: "openai/gpt-4o-mini", 
-          temperature: 0.5,
-          max_tokens: 200
-        }
-      ),
-      assistantAIService.checkTranslation(prompt, translation)
-    ]);
-
-    // Ưu tiên OpenRouter, nhưng lưu response để training AI phụ trợ
-    let response;
-    if (openRouterResponse.status === 'fulfilled') {
-      response = openRouterResponse.value;
-      
-      // Lưu training data cho AI phụ trợ mỗi khi OpenRouter thành công (async, không đợi)
-      assistantAIService.learnFromOpenRouter(
-        prompt,
-        translation,
-        response.choices?.[0]?.message?.content || "{}"
-      ).catch(err => {
-        console.warn("Failed to save training data:", err.message);
-      });
-    } else if (assistantResponse.status === 'fulfilled' && assistantResponse.value) {
-      // Fallback to AI phụ trợ nếu OpenRouter fail
-      console.log("⚠️ Using assistant AI as fallback");
-      response = {
-        choices: [{
-          message: {
-            content: JSON.stringify(assistantResponse.value)
-          }
-        }]
-      };
-    } else {
-      throw new Error("Both OpenRouter and assistant AI failed");
+    const { callGroq } = await import("../utils/aiServiceClient.js");
+    const response = await callGroq(
+      [{ role: "user", content: checkPrompt }],
+      { task_type: "translation_check", temperature: 0.5, max_tokens: 200 }
+    );
+    const content = response.choices?.[0]?.message?.content;
+    if (typeof content !== "string") {
+      return res.status(502).json({ message: "AI returned an invalid translation-check response" });
     }
-
-    const content = response.choices?.[0]?.message?.content || "{}";
     const result = JSON.parse(content);
+    if (typeof result?.correct !== "boolean" || typeof result?.feedback !== "string" || !result.feedback.trim()) {
+      return res.status(502).json({ message: "AI returned an incomplete translation-check response" });
+    }
 
     // Lưu translation vào round
     await pool.query(
@@ -386,7 +344,10 @@ IMPORTANT:
     res.json(result);
   } catch (err) {
     console.error("❌ checkTranslation error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
+    res.status(err.status || 502).json({
+      message: err.message || "Translation check failed",
+      code: err.code
+    });
   }
 }
 
@@ -412,25 +373,6 @@ export async function analyzeAndSummary(req, res) {
 /**
  * Lưu word meanings cho một round
  */
-export async function saveWordMeanings(req, res) {
-  try {
-    const { roundId } = req.params;
-    const { word_meanings } = req.body;
-
-    await pool.query(
-      `UPDATE speaking_practice_rounds 
-       SET word_meanings = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [JSON.stringify(word_meanings || {}), roundId]
-    );
-
-    res.json({ success: true, message: "Word meanings saved" });
-  } catch (err) {
-    console.error("❌ saveWordMeanings error:", err);
-    res.status(500).json({ message: err.message || "Server error" });
-  }
-}
-
 /**
  * Lưu session vào lịch sử làm bài
  */
@@ -440,7 +382,7 @@ export async function saveToHistory(req, res) {
 
     // Lấy thông tin session
     const session = await pool.query(
-      `SELECT learner_id, level, created_at, completed_at, total_score, average_score, summary
+      `SELECT learner_id, level, status, created_at, completed_at, total_score, average_score, summary
        FROM speaking_practice_sessions 
        WHERE id = $1`,
       [sessionId]
@@ -451,6 +393,9 @@ export async function saveToHistory(req, res) {
     }
 
     const sessionData = session.rows[0];
+    if (sessionData.status !== "completed" || !sessionData.completed_at) {
+      return res.status(409).json({ message: "Practice session is not complete" });
+    }
 
     // Lấy rounds
     const rounds = await pool.query(
@@ -459,6 +404,15 @@ export async function saveToHistory(req, res) {
        ORDER BY round_number`,
       [sessionId]
     );
+    let verifiedScore;
+    try {
+      verifiedScore = deriveSpeakingPracticeSummaryScore(rounds.rows);
+    } catch (err) {
+      if (err.code === "SPEAKING_ASSESSMENT_INCOMPLETE") {
+        return res.status(409).json({ message: "Practice session contains incomplete assessment rounds" });
+      }
+      throw err;
+    }
 
     // Lấy strengths và improvements từ quick evaluations
     const evaluations = await pool.query(
@@ -510,13 +464,16 @@ export async function saveToHistory(req, res) {
       [sessionData.learner_id, today, todayEnd]
     );
     
-    const newScore = sessionData.average_score || 0;
+    const newScore = verifiedScore.average_score;
     let result;
     
     if (existingToday.rows.length > 0) {
-      const existingScore = existingToday.rows[0].average_score || 0;
+      const existingRawScore = existingToday.rows[0].average_score;
+      const existingScore = existingRawScore === null || existingRawScore === undefined
+        ? null
+        : Number(existingRawScore);
       // Nếu điểm mới cao hơn, update record cũ
-      if (newScore > existingScore) {
+      if (existingScore === null || !Number.isFinite(existingScore) || newScore > existingScore) {
         result = await pool.query(
           `UPDATE practice_history 
            SET total_score = $1,
@@ -526,7 +483,7 @@ export async function saveToHistory(req, res) {
            WHERE id = $5
            RETURNING *`,
           [
-            sessionData.total_score || 0,
+            verifiedScore.total_score,
             newScore,
             duration,
             sessionId,
@@ -548,7 +505,7 @@ export async function saveToHistory(req, res) {
           sessionData.learner_id,
           sessionId,
           sessionData.level,
-          sessionData.total_score || 0,
+          verifiedScore.total_score,
           newScore,
           duration
         ]
@@ -598,9 +555,10 @@ export async function getSummary(req, res) {
     // Parse missing_words từ analysis cho mỗi round
     const roundsWithMissingWords = rounds.rows.map(round => {
       let missingWords = [];
+      let analysis = null;
       if (round.analysis) {
         try {
-          const analysis = typeof round.analysis === 'string' 
+          analysis = typeof round.analysis === 'string'
             ? JSON.parse(round.analysis) 
             : round.analysis;
           missingWords = analysis.missing_words || [];
@@ -610,19 +568,40 @@ export async function getSummary(req, res) {
       }
       return {
         ...round,
+        analysis_status: getSpeakingPracticeAnalysisStatus(round.analysis),
+        assessment_type: analysis?.assessment_type || "transcript_match",
+        assessment_scope: analysis?.assessment_scope || "content_match_only",
+        pronunciation_assessed: analysis?.pronunciation_assessed === true,
         missing_words: missingWords
       };
     });
-    
+
     const sessionData = {
       ...session.rows[0],
       summary: typeof session.rows[0].summary === 'string' 
         ? JSON.parse(session.rows[0].summary || '{}') 
         : session.rows[0].summary || {}
     };
+    const roundStatuses = roundsWithMissingWords.map(round => round.analysis_status);
+    const summaryStatus = sessionData.status === "completed"
+      ? "completed"
+      : roundStatuses.includes("failed")
+        ? "failed"
+        : "processing";
+    const summaryData = {
+      ...sessionData.summary,
+      status: summaryStatus,
+      message: summaryStatus === "failed"
+        ? "Một số vòng chưa thể phân tích. Hãy thử lại."
+        : summaryStatus === "processing"
+          ? "Một số vòng vẫn đang được phân tích."
+          : undefined
+    };
     
     res.json({
+      status: summaryStatus,
       session: sessionData,
+      summary: summaryData,
       rounds: roundsWithMissingWords
     });
   } catch (err) {
@@ -637,22 +616,9 @@ export async function getSummary(req, res) {
 export async function getRecentActivities(req, res) {
   try {
     const { limit } = req.query;
-    const { learner_id, user_id } = req.query;
-
-    // Nếu có user_id, lookup learner_id
-    let actualLearnerId = learner_id;
-    if (!actualLearnerId && user_id) {
-      const learnerRes = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (learnerRes.rows[0]) {
-        actualLearnerId = learnerRes.rows[0].id;
-      }
-    }
-
+    const actualLearnerId = req.learnerId;
     if (!actualLearnerId) {
-      return res.status(400).json({ message: "learner_id or user_id is required" });
+      return res.status(403).json({ message: "Learner identity is required" });
     }
 
     const speakingPracticeDashboardService = await import("../services/speakingPracticeDashboardService.js");
@@ -672,22 +638,9 @@ export async function getRecentActivities(req, res) {
  */
 export async function getCurrentCompetitionScore(req, res) {
   try {
-    const { learner_id, user_id } = req.query;
-
-    // Nếu có user_id, lookup learner_id
-    let actualLearnerId = learner_id;
-    if (!actualLearnerId && user_id) {
-      const learnerRes = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (learnerRes.rows[0]) {
-        actualLearnerId = learnerRes.rows[0].id;
-      }
-    }
-
+    const actualLearnerId = req.learnerId;
     if (!actualLearnerId) {
-      return res.status(400).json({ message: "learner_id or user_id is required" });
+      return res.status(403).json({ message: "Learner identity is required" });
     }
 
     const speakingPracticeDashboardService = await import("../services/speakingPracticeDashboardService.js");
@@ -705,22 +658,9 @@ export async function getCurrentCompetitionScore(req, res) {
 export async function getWeeklyHistory(req, res) {
   try {
     const { offset, limit } = req.query;
-    const { learner_id, user_id } = req.query;
-
-    // Nếu có user_id, lookup learner_id
-    let actualLearnerId = learner_id;
-    if (!actualLearnerId && user_id) {
-      const learnerRes = await pool.query(
-        `SELECT id FROM learners WHERE user_id = $1`,
-        [user_id]
-      );
-      if (learnerRes.rows[0]) {
-        actualLearnerId = learnerRes.rows[0].id;
-      }
-    }
-
+    const actualLearnerId = req.learnerId;
     if (!actualLearnerId) {
-      return res.status(400).json({ message: "learner_id or user_id is required" });
+      return res.status(403).json({ message: "Learner identity is required" });
     }
 
     const speakingPracticeDashboardService = await import("../services/speakingPracticeDashboardService.js");
@@ -744,7 +684,7 @@ export async function getTopRatings(req, res) {
     const { limit } = req.query;
     const speakingPracticeDashboardService = await import("../services/speakingPracticeDashboardService.js");
     const ratings = await speakingPracticeDashboardService.getTopRatings(parseInt(limit) || 10);
-    res.json({ ratings });
+    res.json({ ratings, assessment_status: "not_assessed", assessment_reason: "score_provenance_unavailable" });
   } catch (err) {
     console.error("❌ getTopRatings error:", err);
     res.status(500).json({ message: err.message || "Server error" });
@@ -767,6 +707,7 @@ export async function getRoundsForSession(req, res) {
       SELECT 
         r.id as round_id,
         r.round_number,
+        r.prompt,
         r.audio_url as audio_path,
         r.transcript as transcription,
         r.score,
@@ -784,9 +725,10 @@ export async function getRoundsForSession(req, res) {
       // Parse analysis data to extract feedback and missing_words
       let feedback = "";
       let missing_words = [];
+      let analysis = null;
       if (round.analysis_data) {
         try {
-          const analysis = typeof round.analysis_data === "string" 
+          analysis = typeof round.analysis_data === "string"
             ? JSON.parse(round.analysis_data) 
             : round.analysis_data;
           feedback = analysis?.feedback || "";
@@ -799,9 +741,15 @@ export async function getRoundsForSession(req, res) {
       return {
         round_id: round.round_id,
         round_number: round.round_number,
+        prompt: round.prompt,
         audio_path: round.audio_path,
         transcription: round.transcription,
         score: round.score,
+        analysis_status: getSpeakingPracticeAnalysisStatus(round.analysis_data),
+        assessment_contract: analysis?.assessment_contract ?? null,
+        assessment_type: analysis?.assessment_type || "transcript_match",
+        assessment_scope: analysis?.assessment_scope || "content_match_only",
+        pronunciation_assessed: analysis?.pronunciation_assessed === true,
         feedback: feedback,
         created_at: round.created_at,
         analysis_data: round.analysis_data,
@@ -815,4 +763,7 @@ export async function getRoundsForSession(req, res) {
     res.status(500).json({ message: err.message || "Server error" });
   }
 }
-
+export async function endPracticeSession(req,res) {
+  try {res.json(await practiceRetention.end(req.params.sessionId,req.learnerId));}
+  catch(error){res.status(error.status||500).json({message:error.message,code:error.code});}
+}

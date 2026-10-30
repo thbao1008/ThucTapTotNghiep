@@ -1,16 +1,9 @@
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
-import path from "path";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
 import * as sessionService from "../services/sessionService.js";
+import "../../../shared/loadBackendEnv.js";
+import { requireJwtSecret } from "../../../shared/jwtConfig.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-const envFile = process.env.DOCKER === "true" ? "../../.env.docker" : "../../.env.local";
-const envPath = path.resolve(__dirname, envFile);
-dotenv.config({ path: envPath });
+const JWT_SECRET = requireJwtSecret();
 
 export async function authGuard(req, res, next) {
   try {
@@ -37,7 +30,7 @@ export async function authGuard(req, res, next) {
 
     // Verify JWT token
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || "secret_key");
+      const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ["HS256"] });
       req.user = decoded;
       req.session = sessionCheck.session;
       next();

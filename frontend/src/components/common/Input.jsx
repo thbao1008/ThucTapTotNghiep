@@ -1,3 +1,4 @@
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿import React from "react";
 
 export default function Input({ value = "", onChange = () => {}, placeholder = "", type = "text", className = "", error = "", ...props }) {
@@ -12,7 +13,7 @@ export default function Input({ value = "", onChange = () => {}, placeholder = "
         aria-invalid={!!error}
         {...props}
       />
-      {error && <div className="input-error" role="alert">{error}</div>}
+      {error && <div className="input-error" role="alert"><UiText>{error}</UiText></div>}
     </div>
   );
 }

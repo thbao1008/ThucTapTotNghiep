@@ -1,149 +1,85 @@
 // AI Service Client - Helper to call AI Service via API Gateway
-const API_GATEWAY_URL = `http://localhost:${process.env.API_GATEWAY_PORT || 4000}`;
-const AI_SERVICE_URL = process.env.AI_SERVICE_URL || `http://localhost:${process.env.AI_SERVICE_PORT || 4010}`;
+const gatewayUrl = () => process.env.API_GATEWAY_URL || `http://localhost:${process.env.API_GATEWAY_PORT || 4000}`;
+import { getAIServiceAuthHeaders } from "./aiServiceAuth.js";
 
-/**
- * Call OpenRouter API (via AI Service, with fallback to direct call)
- */
-export async function callOpenRouter(messages, options = {}) {
-  // Gọi qua API Gateway (khuyến nghị) thay vì trực tiếp AI Service
+async function postAIService(path, payload, {
+  baseUrl = gatewayUrl(),
+  fetchImpl = fetch,
+  getAuthHeaders = getAIServiceAuthHeaders,
+  timeoutMs = 60_000
+} = {}) {
+  const headers = { "Content-Type": "application/json", ...getAuthHeaders() };
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  let data;
+
   try {
-    // Tạo AbortController cho timeout (tương thích với mọi Node.js version)
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 60000); // 60s timeout (AiESP có thể chậm hơn)
-    
-    // Gọi qua API Gateway thay vì trực tiếp AI Service
-    const response = await fetch(`${API_GATEWAY_URL}/api/ai/call-openrouter`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ messages, options }),
+    response = await fetchImpl(`${baseUrl}/api/ai${path}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
       signal: controller.signal
     });
-    
-    clearTimeout(timeoutId);
-    
-    if (response.ok) {
-      return await response.json();
+    try {
+      data = await response.json();
+    } catch (error) {
+      if (controller.signal.aborted) throw error;
+      throw Object.assign(new Error("AI Service returned an invalid response"), {
+        status: 502, code: "AI_SERVICE_RESPONSE_INVALID"
+      });
     }
-    
-    // Nếu 404 hoặc service không khả dụng, thử fallback
-    if (response.status === 404 || response.status >= 500) {
-      console.warn(`⚠️ AI Service unavailable (${response.status}), trying direct OpenRouter call...`);
-      throw new Error(`AI Service error: ${response.status}`);
-    }
-    
-    throw new Error(`AI Service error: ${response.status}`);
   } catch (err) {
-    // Fallback: Gọi trực tiếp OpenRouter nếu có API key
-    if (process.env.OPENROUTER_API_KEY) {
-      try {
-        console.log("🔄 Falling back to direct OpenRouter API call...");
-        const OR_BASE = "https://openrouter.ai/api/v1";
-        const fetchFn = typeof globalThis.fetch === "function" 
-          ? globalThis.fetch 
-          : (await import("node-fetch")).default;
-        
-        const model = options.model || "openai/gpt-4o-mini";
-        const body = {
-          model: model,
-          messages,
-          temperature: options.temperature ?? 0.7,
-          max_tokens: options.max_tokens ?? 800
-        };
-
-        // Thêm timeout cho direct call
-        const fetchController = new AbortController();
-        const fetchTimeoutId = setTimeout(() => fetchController.abort(), 30000);
-        
-        const res = await fetchFn(`${OR_BASE}/chat/completions`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Authorization": `Bearer ${process.env.OPENROUTER_API_KEY}`
-          },
-          body: JSON.stringify(body),
-          signal: fetchController.signal
-        });
-        
-        clearTimeout(fetchTimeoutId);
-
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "<no body>");
-          throw new Error(`OpenRouter API error: ${res.status} - ${txt}`);
-        }
-
-        const data = await res.json();
-        console.log("✅ Direct OpenRouter call successful");
-        return data;
-      } catch (fallbackErr) {
-        console.error("❌ Direct OpenRouter fallback also failed:", fallbackErr.message);
-        throw err; // Throw original error
-      }
+    if (controller.signal.aborted) {
+      throw Object.assign(new Error("AI Service request timed out"), {
+        status: 504,
+        code: "AI_SERVICE_TIMEOUT"
+      });
     }
-    
-    console.error("❌ Error calling AI Service:", err);
-    throw err;
+    if (err.code === "AI_SERVICE_RESPONSE_INVALID") throw err;
+    throw Object.assign(new Error("AI Service is unavailable"), {
+      status: 503,
+      code: "AI_SERVICE_UNAVAILABLE",
+      cause: err
+    });
+  } finally {
+    clearTimeout(timeoutId);
   }
+
+  if (!response.ok) {
+    throw Object.assign(new Error(data?.error || data?.message || "AI Service request failed"), {
+      status: response.status,
+      code: data?.code || "AI_SERVICE_ERROR"
+    });
+  }
+  return data;
 }
 
 /**
- * Transcribe audio using WhisperX (via AI Service)
+ * Send text-only model requests through the authenticated AI Service.
+ */
+export async function callGroq(messages, options = {}) {
+  return postAIService("/call-groq", { messages, options });
+}
+
+/**
+ * Transcribe audio using local WhisperX; the text-only AI endpoint is not an audio API.
  */
 export async function transcribeWithWhisperX(audioFilePath, options = {}) {
-  try {
-    // Note: This would need to be implemented as a file upload endpoint in AI Service
-    // For now, we'll use the local whisperxRunner
-    const { runWhisperX } = await import("./whisperxRunner.js");
-    return await runWhisperX(audioFilePath, options);
-  } catch (err) {
-    console.error("❌ Error transcribing audio:", err);
-    throw err;
-  }
+  const { runWhisperX } = await import("./whisperxRunner.js");
+  return runWhisperX(audioFilePath, options);
 }
+
+
+
 
 /**
- * Call Trained AI (via AI Service through API Gateway)
+ * Analyze learner transcript through the authenticated AI Service.
  */
-export async function callTrainedAI(trainingType, options = {}, messages = null, aiOptions = {}) {
-  try {
-    // Gọi qua API Gateway thay vì trực tiếp AI Service
-    const response = await fetch(`${API_GATEWAY_URL}/api/ai/trained/call`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ trainingType, options, messages, aiOptions })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`AI Service error: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (err) {
-    console.error("❌ Error calling Trained AI:", err);
-    throw err;
-  }
+export async function analyzeLearnerTranscript(transcript, options = {}, requestOptions = {}) {
+  return postAIService(
+    "/learner/analyze-transcript",
+    { transcript, options },
+    requestOptions
+  );
 }
-
-/**
- * Analyze learner transcript (via AI Service through API Gateway)
- */
-export async function analyzeLearnerTranscript(transcript, options = {}) {
-  try {
-    // Gọi qua API Gateway thay vì trực tiếp đến AI Service
-    const response = await fetch(`${API_GATEWAY_URL}/api/ai/learner/analyze-transcript`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ transcript, options })
-    });
-    
-    if (!response.ok) {
-      throw new Error(`AI Service error: ${response.status}`);
-    }
-    
-    return await response.json();
-  } catch (err) {
-    console.error("❌ Error analyzing learner transcript:", err);
-    throw err;
-  }
-}
-

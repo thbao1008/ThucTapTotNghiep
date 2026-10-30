@@ -6,8 +6,8 @@
   "scripts": {
     "dev": "vite --open",
     "dev:fe": "vite --open",
-    "dev:docker": "vite",
-    "build": "vite build",
+    "check:bindings": "node scripts/check-react-bindings.mjs",
+    "build": "npm run check:bindings && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
@@ -32,4 +32,3 @@
     "vite": "^5.4.21"
   }
 }
-

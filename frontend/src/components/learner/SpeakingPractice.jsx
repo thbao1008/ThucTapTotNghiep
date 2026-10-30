@@ -1,29 +1,54 @@
-import React, { useState, useEffect } from "react";
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
+import React, { useState, useEffect, useRef } from "react";
 import { getAuth } from "../../utils/auth";
 import api from "../../api";
+import { formatDashboardScore } from "../../utils/dashboardScore.js";
+import { restorePracticeSession } from "../../utils/restorePracticeSession.js";
 import SpeakingRound from "./SpeakingRound";
 import SpeakingSummary from "./SpeakingSummary";
-import SpeakingScenario from "./SpeakingScenario";
+
 import TellMeYourStory from "./TellMeYourStory";
+import ScenarioWorldPreview from './ScenarioWorldPreview';
+import { useSearchParams } from 'react-router-dom';
 import SemanticInput from "./SemanticInput";
 import "../../styles/speaking-practice.css";
 import { FaTrophy, FaClock, FaUser } from "react-icons/fa";
+import { FiMic, FiBookOpen, FiUsers } from 'react-icons/fi';
+
+const rawPracticeFields = new Set(['audio', 'audioBlob', 'audio_url', 'audioUrl', 'transcript', 'transcriptJson', 'transcript_json', 'response']);
+const keepGradedRound = round => Object.fromEntries(Object.entries(round || {}).filter(([key]) => !rawPracticeFields.has(key)));
+const keepGradedSummary = summary => ({ ...summary,
+  ...(Array.isArray(summary?.rounds) ? { rounds: summary.rounds.map(keepGradedRound) } : {}),
+});
 
 export default function SpeakingPractice() {
   const auth = getAuth();
-  const [mode, setMode] = useState("practice"); // "practice" or "story"
-  const [level] = useState(1); // Luôn dùng level 1 (đã gộp thành 1 level)
+  const [searchParams,setSearchParams]=useSearchParams();
+  const readMode=value=>value==='scenario-world'?'world':['story'].includes(value)?value:'practice';
+  const [mode,setModeState]=useState(()=>readMode(searchParams.get('mode')));
+  function setMode(next) {
+    setModeState(next);
+    setSearchParams(previous=>{
+      const params=new URLSearchParams(previous);
+      if(next==='practice')params.delete('mode');else params.set('mode',next==='world'?'scenario-world':next);
+      return params;
+    },{replace:true});
+  }
+  useEffect(()=>{setModeState(readMode(searchParams.get('mode')));},[searchParams]);
+  const [level, setLevel] = useState(1);
   const [sessionId, setSessionId] = useState(null);
   const [currentRound, setCurrentRound] = useState(0);
   const [rounds, setRounds] = useState([]);
   const [sessionData, setSessionData] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [restoringSession, setRestoringSession] = useState(false);
   const [error, setError] = useState("");
   const [showSemanticInput, setShowSemanticInput] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
-  const [scenarios, setScenarios] = useState([]);
-  const [selectedScenario, setSelectedScenario] = useState(null);
-  const [scenarioSessionId, setScenarioSessionId] = useState(null);
+
+
+
   const [recentActivities, setRecentActivities] = useState([]);
   const [competitionScore, setCompetitionScore] = useState(null);
   const [loadingDashboard, setLoadingDashboard] = useState(false);
@@ -31,13 +56,47 @@ export default function SpeakingPractice() {
   const [weeklyHistory, setWeeklyHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
   const [incompleteSession, setIncompleteSession] = useState(null);
-  const [incompleteScenarioSession, setIncompleteScenarioSession] = useState(null);
+
   const [topRatings, setTopRatings] = useState([]);
   const [historyOffset, setHistoryOffset] = useState(0);
-  const [showScenarioList, setShowScenarioList] = useState(false); // Chỉ hiển thị danh sách scenarios khi đã click "Bắt đầu làm bài"
+   // Chỉ hiển thị danh sách scenarios khi đã click "Bắt đầu làm bài"
+
+  const mountedRef = useRef(false);
+  const currentSessionRef = useRef(null);
+  const endingRequestsRef = useRef(new Map());
+  function endPracticeSession(session = currentSessionRef.current) {
+    if (!session || getAuth()?.token !== session.token) return Promise.resolve(null);
+    const key = `${session.id}:${session.token}`;
+    if (endingRequestsRef.current.has(key)) return endingRequestsRef.current.get(key);
+    const request = api.post(`/learners/speaking-practice/sessions/${session.id}/end`).then(({ data }) => {
+      if (Number(data?.session_id) !== Number(session.id)) throw new Error('Invalid practice end response');
+      return data;
+    }).catch(error => { endingRequestsRef.current.delete(key); throw error; });
+    endingRequestsRef.current.set(key, request);
+    return request;
+  }
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      // The initial StrictMode cleanup sees no adopted session. Mode switches keep
+      // this component mounted; only leaving the whole practice page ends it.
+      void endPracticeSession().catch(() => {});
+    };
+  }, []);
+
+  useEffect(() => {
+    if (sessionData?.summary?.status !== 'completed') return;
+    setRounds(previous => previous.map(keepGradedRound));
+    setSessionData(previous => previous?.summary?.status !== 'completed' ? previous : ({ ...keepGradedRound(previous),
+      ...(Array.isArray(previous?.rounds) ? { rounds: previous.rounds.map(keepGradedRound) } : {}),
+      summary: keepGradedSummary(previous?.summary),
+    }));
+  }, [sessionId, sessionData?.summary?.status]);
 
   // Tạo session mới
   const createSession = async () => {
+    const ownerToken = auth?.token;
     setLoading(true);
     setError("");
     try {
@@ -56,12 +115,19 @@ export default function SpeakingPractice() {
         mode: "practice"
       });
 
-      setSessionId(res.data.session_id);
+      const session = { id: res.data.session_id, token: ownerToken };
+      if (!mountedRef.current || getAuth()?.token !== ownerToken) {
+        void endPracticeSession(session).catch(() => {}); return;
+      }
+      currentSessionRef.current = session;
+      setSessionId(session.id);
       setCurrentRound(0);
       setRounds([]);
       setSessionData(res.data);
+      setLevel(Number(res.data.level) || level);
       setIncompleteSession(null);
     } catch (err) {
+      if (!mountedRef.current) return;
       console.error("❌ Error creating session:", err);
       // Nếu có session đang dở dang, lưu thông tin
       if (err?.response?.data?.incomplete_session) {
@@ -71,7 +137,7 @@ export default function SpeakingPractice() {
         setError(err?.response?.data?.message || "Không thể tạo session. Vui lòng thử lại.");
       }
     } finally {
-      setLoading(false);
+      if (mountedRef.current) setLoading(false);
     }
   };
 
@@ -88,7 +154,7 @@ export default function SpeakingPractice() {
       const newRound = {
         ...roundData,
         round_number: currentRound + 1,
-        status: "processing"
+        status: roundData.analysis_status || "processing"
       };
 
       setRounds(prev => {
@@ -101,10 +167,7 @@ export default function SpeakingPractice() {
       if (nextRound >= 10) {
         // Đã đủ 10 vòng, cập nhật currentRound và hiển thị màn hình nhập ngữ nghĩa
         setCurrentRound(10);
-        // Đợi một chút để state được update
-        setTimeout(() => {
-          setShowSemanticInput(true);
-        }, 100);
+        setShowSemanticInput(true);
       } else {
         // Chuyển sang vòng tiếp theo ngay
         setCurrentRound(nextRound);
@@ -113,7 +176,7 @@ export default function SpeakingPractice() {
     }
     try {
       const formData = new FormData();
-      formData.append("audio", roundData.audioBlob);
+      formData.append("audio", roundData.audioBlob, `round-${currentRound + 1}.webm`);
       formData.append("time_taken", roundData.timeTaken);
       formData.append("round_number", currentRound + 1);
 
@@ -129,7 +192,7 @@ export default function SpeakingPractice() {
         ...roundData,
         round_number: currentRound + 1,
         round_id: res.data.round_id,
-        status: "processing"
+        status: roundData.analysis_status || "processing"
       };
 
       setRounds(prev => [...prev, newRound]);
@@ -151,7 +214,15 @@ export default function SpeakingPractice() {
   };
 
   // Reset session
-  const resetSession = () => {
+  const resetSession = async () => {
+    const session = currentSessionRef.current;
+    try { await endPracticeSession(session); }
+    catch {
+      if (mountedRef.current) setError('Không thể kết thúc bài luyện tập. Vui lòng thử lại.');
+      return false;
+    }
+    if (!mountedRef.current || currentSessionRef.current !== session) return false;
+    currentSessionRef.current = null;
     setSessionId(null);
     setCurrentRound(0);
     setRounds([]);
@@ -159,14 +230,11 @@ export default function SpeakingPractice() {
     setError("");
     setShowSemanticInput(false);
     setAnalyzing(false);
+    return true;
   };
 
   // Load scenarios chỉ khi showScenarioList = true
-  useEffect(() => {
-    if (mode === "scenario" && showScenarioList) {
-      fetchScenarios();
-    }
-  }, [mode, showScenarioList]);
+
 
   // Load dashboard data (recent activities và top ratings)
   useEffect(() => {
@@ -202,35 +270,32 @@ export default function SpeakingPractice() {
     }
   };
 
-  const checkIncompleteScenarioSession = async () => {
-    try {
-      const userId = auth?.user?._id || auth?.user?.id;
-      const learnerId = auth?.user?.learner_id;
-      
-      // Kiểm tra scenario session chưa hoàn thành
-      const res = await api.get(`/learners/speaking-practice/scenario/incomplete-session?${learnerId ? `learner_id=${learnerId}` : `user_id=${userId}`}`);
-      if (res.data.incomplete_session) {
-        setIncompleteScenarioSession(res.data.incomplete_session);
-        if (!error || !error.includes("giao tiếp")) {
-          setError(`Bạn đang có một bài luyện giao tiếp chưa hoàn thành.`);
-        }
-      } else {
-        setIncompleteScenarioSession(null);
-        if (error && error.includes("giao tiếp")) {
-          setError("");
-        }
-      }
-    } catch (err) {
-      console.error("❌ Error checking incomplete scenario session:", err);
-    }
-  };
 
-  const continueIncompleteSession = () => {
-    if (incompleteSession) {
-      setSessionId(incompleteSession.session_id);
-      setCurrentRound(incompleteSession.rounds_count);
-      setRounds([]);
-      setIncompleteSession(null);
+
+  const continueIncompleteSession = async () => {
+    if (incompleteSession && !restoringSession) {
+      const session = { id: incompleteSession.session_id, token: auth?.token };
+      setRestoringSession(true);
+      try {
+        const restored = await restorePracticeSession(api, incompleteSession.session_id);
+        if (!mountedRef.current || getAuth()?.token !== session.token) {
+          void endPracticeSession(session).catch(() => {}); return;
+        }
+        currentSessionRef.current = session;
+        setSessionId(incompleteSession.session_id);
+        setCurrentRound(restored.currentRound);
+        setRounds(restored.rounds);
+        setSessionData(restored.sessionData);
+        setLevel(Number(restored.sessionData.level) || 1);
+        setIncompleteSession(null);
+        setError("");
+      } catch (err) {
+        if (!mountedRef.current) return;
+        console.error("❌ Error restoring speaking practice results:", err);
+        setError(err?.response?.data?.message || err?.message || "Không thể khôi phục kết quả. Vui lòng tải lại.");
+      } finally {
+        if (mountedRef.current) setRestoringSession(false);
+      }
     }
   };
 
@@ -246,8 +311,11 @@ export default function SpeakingPractice() {
         api.get(`/learners/speaking-practice/top-ratings?limit=5`)
       ]);
       setRecentActivities(activitiesRes.data.activities || []);
-      setCompetitionScore(scoreRes.data.score || { average_score: 0, total_days: 0, rank: 0 });
-      setTopRatings(ratingsRes.data.ratings || []);
+      setCompetitionScore(scoreRes.data.score || { average_score: null, total_days: 0, rank: null, assessment_status: "not_assessed" });
+      setTopRatings((ratingsRes.data.ratings || []).filter(row =>
+        row.assessment_status === "completed" && typeof row.average_score === "number" &&
+        Number.isFinite(row.average_score) && row.average_score >= 0 && row.average_score <= 100
+      ));
     } catch (err) {
       console.error("❌ Error fetching dashboard data:", err);
     } finally {
@@ -290,112 +358,77 @@ export default function SpeakingPractice() {
     fetchWeeklyHistory(0);
   };
 
-  const fetchScenarios = async () => {
-    try {
-      const res = await api.get("/learners/speaking-practice/scenarios");
-      setScenarios(res.data.scenarios || []);
-    } catch (err) {
-      console.error("❌ Error fetching scenarios:", err);
-    }
-  };
 
-  const startScenario = async (scenario) => {
-    try {
-      const userId = auth?.user?._id || auth?.user?.id;
-      const learnerId = auth?.user?.learner_id;
-      
-      const res = await api.post("/learners/speaking-practice/scenario/sessions", {
-        scenario_id: scenario.id,
-        learner_id: learnerId,
-        user_id: userId
-      });
-      setScenarioSessionId(res.data.session_id);
-      setSelectedScenario(scenario);
-    } catch (err) {
-      console.error("❌ Error starting scenario:", err);
-      alert("Không thể bắt đầu tình huống. Vui lòng thử lại.");
-    }
-  };
 
-  const handleScenarioComplete = (data) => {
-    alert("Chúc mừng! Bạn đã hoàn thành tình huống!");
-    setSelectedScenario(null);
-    setScenarioSessionId(null);
-    setMode("practice");
-  };
+
+
+
+
+  useEffect(() => {
+    if (
+      mode !== "practice" ||
+      currentRound < 10 ||
+      !sessionId ||
+      sessionData?.summary?.status !== "processing"
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let timeoutId;
+    const pollSummary = async () => {
+      try {
+        const response = await api.post(
+          `/learners/speaking-practice/sessions/${sessionId}/analyze-and-summary`
+        );
+        if (cancelled) return;
+
+        const summary = response.data;
+        setSessionData(previous => ({ ...previous, summary }));
+        if (Array.isArray(summary.rounds)) {
+          setRounds(summary.rounds);
+        }
+        if (summary.status === "completed") {
+          try {
+            await api.post(`/learners/speaking-practice/sessions/${sessionId}/save-to-history`);
+          } catch (err) {
+            console.error("❌ Error saving completed practice to history:", err);
+          }
+        } else if (summary.status === "processing") {
+          timeoutId = setTimeout(pollSummary, 2000);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setSessionData(previous => ({
+            ...previous,
+            summary: {
+              status: "failed",
+              message: err?.response?.data?.message || "Không thể tải kết quả. Vui lòng thử lại."
+            }
+          }));
+        }
+      }
+    };
+
+    timeoutId = setTimeout(pollSummary, 2000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [mode, currentRound, sessionId, sessionData?.summary?.status]);
 
   if (mode === "story") {
     return <TellMeYourStory onBack={() => setMode("practice")} />;
   }
+  if (mode === 'world') {
+    return <ScenarioWorldPreview onBack={()=>setMode('practice')} />;
+  }
 
   // Màn hình chọn scenario (chỉ hiển thị khi showScenarioList = true)
-  if (mode === "scenario" && showScenarioList && !selectedScenario) {
-    return (
-      <div className="speaking-practice-page">
-        <div className="practice-header">
-          <h2>Luyện giao tiếp</h2>
-          <button 
-            className="btn-back" 
-            onClick={() => {
-              setShowScenarioList(false);
-              setSelectedScenario(null);
-            }} 
-            style={{ padding: "8px 16px", background: "#6b7280", color: "white", border: "none", borderRadius: 4, cursor: "pointer" }}
-          >
-            Quay lại
-          </button>
-        </div>
-        <div className="scenarios-list" style={{ padding: 20 }}>
-          {scenarios.length === 0 ? (
-            <p style={{ textAlign: "center", color: "#666" }}>Đang tải tình huống...</p>
-          ) : (
-            scenarios.map((scenario) => (
-              <div
-                key={scenario.id}
-                style={{
-                  padding: 20,
-                  marginBottom: 15,
-                  background: "white",
-                  borderRadius: 8,
-                  border: "1px solid #e5e7eb",
-                  cursor: "pointer",
-                  transition: "all 0.2s"
-                }}
-                onClick={() => startScenario(scenario)}
-                onMouseEnter={(e) => e.currentTarget.style.borderColor = "#10b981"}
-                onMouseLeave={(e) => e.currentTarget.style.borderColor = "#e5e7eb"}
-              >
-                <h3 style={{ marginBottom: 10, color: "#10b981" }}>{scenario.title}</h3>
-                <p style={{ color: "#666", marginBottom: 10 }}>{scenario.description}</p>
-                <div style={{ fontSize: 14, color: "#999" }}>
-                  <strong>Nhiệm vụ:</strong> {scenario.task}
-                </div>
-                <div style={{ fontSize: 12, color: "#999", marginTop: 5 }}>
-                  Độ khó: {scenario.difficulty_level === 1 ? "Dễ" : scenario.difficulty_level === 2 ? "Trung bình" : "Khó"}
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      </div>
-    );
-  }
+
 
   // Màn hình scenario đang chơi
-  if (mode === "scenario" && selectedScenario && scenarioSessionId) {
-    return (
-      <SpeakingScenario
-        sessionId={scenarioSessionId}
-        scenario={selectedScenario}
-        onComplete={handleScenarioComplete}
-        onCancel={() => {
-          setSelectedScenario(null);
-          setScenarioSessionId(null);
-          setMode("practice");
-        }}
-      />
-    );
-  }
+
 
   // Xử lý khi hoàn thành semantic input
   const handleSemanticComplete = async () => {
@@ -414,6 +447,10 @@ export default function SpeakingPractice() {
         setRounds(summaryRes.data.rounds);
       }
       
+      if (summaryRes.data.status !== "completed") {
+        return;
+      }
+
       // Lưu vào lịch sử làm bài
       try {
         await api.post(`/learners/speaking-practice/sessions/${sessionId}/save-to-history`);
@@ -422,20 +459,13 @@ export default function SpeakingPractice() {
       }
     } catch (err) {
       console.error("❌ Error analyzing and generating summary:", err);
-      // Nếu API không tồn tại, thử API cũ
-      try {
-        const summaryRes = await api.get(
-          `/learners/speaking-practice/sessions/${sessionId}/summary`
-        );
-        setSessionData(prev => ({ ...prev, summary: summaryRes.data }));
-        
-        // Cập nhật rounds với dữ liệu từ summary
-        if (summaryRes.data.rounds && Array.isArray(summaryRes.data.rounds)) {
-          setRounds(summaryRes.data.rounds);
+      setSessionData(prev => ({
+        ...prev,
+        summary: {
+          status: "failed",
+          message: err?.response?.data?.message || "Không thể tải kết quả. Vui lòng thử lại."
         }
-      } catch (err2) {
-        console.error("❌ Error fetching summary:", err2);
-      }
+      }));
     } finally {
       setAnalyzing(false);
     }
@@ -457,6 +487,10 @@ export default function SpeakingPractice() {
         setRounds(summaryRes.data.rounds);
       }
       
+      if (summaryRes.data.status !== "completed") {
+        return;
+      }
+
       // Lưu vào lịch sử làm bài
       try {
         await api.post(`/learners/speaking-practice/sessions/${sessionId}/save-to-history`);
@@ -465,20 +499,13 @@ export default function SpeakingPractice() {
       }
     } catch (err) {
       console.error("❌ Error analyzing and generating summary:", err);
-      // Nếu API không tồn tại, thử API cũ
-      try {
-        const summaryRes = await api.get(
-          `/learners/speaking-practice/sessions/${sessionId}/summary`
-        );
-        setSessionData(prev => ({ ...prev, summary: summaryRes.data }));
-        
-        // Cập nhật rounds với dữ liệu từ summary
-        if (summaryRes.data.rounds && Array.isArray(summaryRes.data.rounds)) {
-          setRounds(summaryRes.data.rounds);
+      setSessionData(prev => ({
+        ...prev,
+        summary: {
+          status: "failed",
+          message: err?.response?.data?.message || "Không thể tải kết quả. Vui lòng thử lại."
         }
-      } catch (err2) {
-        console.error("❌ Error fetching summary:", err2);
-      }
+      }));
     } finally {
       setAnalyzing(false);
     }
@@ -489,10 +516,10 @@ export default function SpeakingPractice() {
     return (
       <div className="speaking-practice-page">
         <div className="practice-header">
-          <h2>Đang phân tích kết quả...</h2>
+          <h2><UiText text={"Đang phân tích kết quả..."} /></h2>
         </div>
         <div style={{ textAlign: "center", padding: 40 }}>
-          <p style={{ fontSize: 18, color: "#666" }}>Vui lòng đợi trong giây lát...</p>
+          <p style={{ fontSize: 18, color: "#666" }}><UiText text={"Vui lòng đợi trong giây lát..."} /></p>
         </div>
       </div>
     );
@@ -517,6 +544,9 @@ export default function SpeakingPractice() {
         sessionData={sessionData}
         rounds={rounds}
         onRestart={resetSession}
+        onFinish={resetSession}
+        endError={error}
+        onRetry={handleSemanticSkip}
       />
     );
   }
@@ -524,7 +554,8 @@ export default function SpeakingPractice() {
   // Nếu đang trong session, hiển thị vòng nói
   if (sessionId !== null && currentRound < 10) {
     
-    return (
+    return <>
+      {error && <p role="alert" style={{ color: '#b91c1c', padding: '12px 20px' }}><UiText>{error}</UiText></p>}
       <SpeakingRound
         key={`round-${currentRound}-${sessionId}`} // Force re-render khi round thay đổi
         sessionId={sessionId}
@@ -533,15 +564,15 @@ export default function SpeakingPractice() {
         onSave={saveRound}
         onCancel={resetSession}
       />
-    );
+    </>;
   }
 
   // Màn hình chọn level và bắt đầu
   return (
     <div className="speaking-practice-page">
       <div className="practice-header">
-        <h2>Luyện tập cùng AI</h2>
-        <p>Bắt đầu luyện tập. Bạn sẽ có 10 vòng nói với AI. Độ khó sẽ được điều chỉnh tự động dựa trên trình độ của bạn.</p>
+        <h2><UiText text={"Luyện tập cùng AI"} /></h2>
+        <p><UiText text="Choose your pace. Read 10 sentences with automatic microphone and live word tracking." /></p>
       </div>
 
       <div className="practice-modes">
@@ -551,29 +582,17 @@ export default function SpeakingPractice() {
             setMode("practice");
             checkIncompleteSession();
           }}
-        >
-          Luyện phát âm
-        </button>
-        <button
-          className={`mode-btn ${mode === "scenario" ? "active" : ""}`}
-          onClick={() => {
-            setMode("scenario");
-            setShowScenarioList(false); // Reset về màn hình chọn
-            checkIncompleteScenarioSession();
-          }}
-        >
-          Luyện giao tiếp
-        </button>
+        ><FiMic aria-hidden="true"/><span><strong><UiText text={"Luyện phát âm"}/></strong><small><UiText text="Đọc thành tiếng và luyện từng đoạn ngắn."/></small></span></button>
+
         <button
           className={`mode-btn ${mode === "story" ? "active" : ""}`}
           onClick={() => setMode("story")}
-        >
-          Tell me your story
-        </button>
+        ><FiBookOpen aria-hidden="true"/><span><strong><UiText text={"Tell me your story"}/></strong><small><UiText text="Kể một câu chuyện theo cách của bạn."/></small></span></button>
+        <button className={`mode-btn ${mode==='world'?'active':''}`} onClick={()=>setMode('world')}><FiUsers aria-hidden="true"/><span><strong><UiText text={"Scenario Studio · NPC & phân cảnh"}/></strong><small><UiText text="Gặp nhân vật và chọn lời đáp tiếp theo."/></small></span></button>
       </div>
 
       {/* Chỉ hiển thị thông báo và nút khi đã chọn mode practice hoặc scenario */}
-      {(mode === "practice" || mode === "scenario") && (
+      {mode === "practice" && (
         <>
           {/* Mode practice: chỉ hiển thị thông báo và nút cho practice session */}
           {mode === "practice" && (error || incompleteSession) && (
@@ -584,14 +603,13 @@ export default function SpeakingPractice() {
               borderRadius: "8px",
               marginBottom: "16px"
             }}>
-              {error || (incompleteSession && `Bạn đang có một bài luyện tập chưa hoàn thành (${incompleteSession.rounds_count}/10 vòng).`)}
+              <UiText>{error || (incompleteSession && `Bạn đang có một bài luyện tập chưa hoàn thành (${incompleteSession.rounds_count}/10 vòng).`)}</UiText>
               {incompleteSession && (
                 <div style={{ marginTop: "12px" }}>
-                  <p style={{ margin: "0 0 8px 0", fontSize: "14px", color: "#111" }}>
-                    Vui lòng hoàn thành bài luyện tập trước khi bắt đầu bài mới.
-                  </p>
+                  <p style={{ margin: "0 0 8px 0", fontSize: "14px", color: "#111" }}>{" "}<UiText text={"Vui lòng hoàn thành bài luyện tập trước khi bắt đầu bài mới."} />{" "}</p>
                   <button
                     onClick={continueIncompleteSession}
+                    disabled={restoringSession}
                     style={{
                       padding: "8px 16px",
                       background: "#10b981",
@@ -602,74 +620,28 @@ export default function SpeakingPractice() {
                       fontSize: "14px",
                       fontWeight: "500"
                     }}
-                  >
-                    Tiếp tục bài luyện tập
-                  </button>
+                  >{" "}<UiText text={"Tiếp tục bài luyện tập"} />{" "}</button>
                 </div>
               )}
             </div>
           )}
 
           {/* Mode scenario: chỉ hiển thị thông báo và nút cho scenario session */}
-          {mode === "scenario" && (error || incompleteScenarioSession) && (
-            <div className="error-message" style={{ 
-              background: incompleteScenarioSession ? "#fef3c7" : "#fee2e2",
-              border: `1px solid ${incompleteScenarioSession ? "#fbbf24" : "#ef4444"}`,
-              padding: "16px",
-              borderRadius: "8px",
-              marginBottom: "16px"
-            }}>
-              {error || (incompleteScenarioSession && "Bạn đang có một bài luyện giao tiếp chưa hoàn thành.")}
-              {incompleteScenarioSession && (
-                <div style={{ marginTop: "12px" }}>
-                  <p style={{ margin: "0 0 8px 0", fontSize: "14px", color: "#111" }}>
-                    Vui lòng hoàn thành bài luyện tập trước khi bắt đầu bài mới.
-                  </p>
-                  <button
-                    onClick={async () => {
-                      // Load lại scenario session
-                      try {
-                        setScenarioSessionId(incompleteScenarioSession.session_id);
-                        // Fetch scenarios để lấy thông tin scenario
-                        await fetchScenarios();
-                        // Tìm scenario từ scenario_id
-                        const scenario = scenarios.find(s => s.id === incompleteScenarioSession.scenario_id);
-                        if (scenario) {
-                          setSelectedScenario(scenario);
-                          setShowScenarioList(false);
-                        } else {
-                          // Nếu chưa có trong list, fetch lại
-                          const res = await api.get("/learners/speaking-practice/scenarios");
-                          const allScenarios = res.data.scenarios || [];
-                          const foundScenario = allScenarios.find(s => s.id === incompleteScenarioSession.scenario_id);
-                          if (foundScenario) {
-                            setSelectedScenario(foundScenario);
-                            setShowScenarioList(false);
-                          }
-                        }
-                      } catch (err) {
-                        console.error("❌ Error continuing scenario session:", err);
-                        alert("Không thể tiếp tục bài luyện tập. Vui lòng thử lại.");
-                      }
-                    }}
-                    style={{
-                      padding: "8px 16px",
-                      background: "#10b981",
-                      color: "white",
-                      border: "none",
-                      borderRadius: "6px",
-                      cursor: "pointer",
-                      fontSize: "14px",
-                      fontWeight: "500"
-                    }}
-                  >
-                    Tiếp tục bài luyện giao tiếp
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
 
+
+          <fieldset className="practice-difficulty" disabled={loading || incompleteSession !== null}>
+            <legend><UiText text="Choose a difficulty"/></legend>
+            <div className="practice-difficulty-options">
+              {[
+                { value: 1, name: 'Easy', detail: 'Everyday vocabulary · 5–12 words', time: 'About 28–37 seconds per sentence' },
+                { value: 2, name: 'Medium', detail: 'Broader topics · 12–22 words', time: 'About 35–47 seconds per sentence' },
+                { value: 3, name: 'Hard', detail: 'Advanced vocabulary · 22–35 words', time: 'About 45–57 seconds per sentence' }
+              ].map(option => <label key={option.value} className={`practice-difficulty-card ${level === option.value ? 'is-selected' : ''}`}>
+                <input type="radio" name="speaking-difficulty" value={option.value} checked={level === option.value} onChange={() => setLevel(option.value)}/>
+                <span><strong><UiText text={option.name}/></strong><span><UiText text={option.detail}/></span><small><UiText text={option.time}/></small></span>
+              </label>)}
+            </div>
+          </fieldset>
           <div className="practice-actions">
             {mode === "practice" && (
               <button
@@ -677,23 +649,10 @@ export default function SpeakingPractice() {
                 onClick={createSession}
                 disabled={loading || incompleteSession !== null}
               >
-                {loading ? "Đang tạo session..." : incompleteSession ? "Vui lòng hoàn thành bài trước" : "Bắt đầu luyện tập"}
+                <UiText>{loading ? "Đang tạo session..." : incompleteSession ? "Vui lòng hoàn thành bài trước" : "Bắt đầu luyện tập"}</UiText>
               </button>
             )}
-            {mode === "scenario" && !showScenarioList && (
-              <button
-                className="btn-start"
-                onClick={() => {
-                  if (!incompleteScenarioSession) {
-                    setShowScenarioList(true);
-                    fetchScenarios();
-                  }
-                }}
-                disabled={loading || incompleteScenarioSession !== null}
-              >
-                {loading ? "Đang tải..." : incompleteScenarioSession ? "Vui lòng hoàn thành bài trước" : "Bắt đầu làm bài"}
-              </button>
-            )}
+
           </div>
         </>
       )}
@@ -725,10 +684,9 @@ export default function SpeakingPractice() {
             alignItems: "center",
             gap: "8px"
           }}>
-            <FaTrophy /> Điểm thi đua hiện tại
-          </h3>
+            <FaTrophy />{" "}<UiText text={"Điểm thi đua hiện tại"} />{" "}</h3>
           {loadingDashboard ? (
-            <p style={{ textAlign: "center", color: "#666" }}>Đang tải...</p>
+            <p style={{ textAlign: "center", color: "#666" }}><UiText text={"Đang tải..."} /></p>
           ) : (
             <>
               <div style={{ textAlign: "center", marginBottom: "16px" }}>
@@ -739,23 +697,19 @@ export default function SpeakingPractice() {
                   lineHeight: "1",
                   marginBottom: "8px"
                 }}>
-                  {competitionScore?.average_score || 0}/100
+                  <UiText>{formatDashboardScore(competitionScore?.average_score, competitionScore?.assessment_status)}</UiText>
                 </div>
-                {competitionScore?.rank > 0 && (
+                {competitionScore?.assessment_status === "completed" && competitionScore?.rank > 0 && (
                   <div style={{ 
                     fontSize: "16px", 
                     color: "#666",
                     marginBottom: "8px"
-                  }}>
-                    Thứ hạng: <strong style={{ color: "#f59e0b" }}>#{competitionScore.rank}</strong>
+                  }}>{" "}<UiText text={"Thứ hạng:"} />{" "}<strong style={{ color: "#f59e0b" }}><UiText text={"#"} /><UiText>{competitionScore.rank}</UiText></strong>
                   </div>
                 )}
                 <div style={{ fontSize: "14px", color: "#999" }}>
-                  {competitionScore?.total_days || 0} ngày luyện tập
-                </div>
-                <div style={{ fontSize: "12px", color: "#999", marginTop: "4px" }}>
-                  Tuần này (Reset mỗi thứ 2)
-                </div>
+                  <UiText>{competitionScore?.total_days || 0}</UiText>{" "}<UiText text={"ngày luyện tập"} />{" "}</div>
+                <div style={{ fontSize: "12px", color: "#999", marginTop: "4px" }}>{" "}<UiText text={"Tuần này (Reset mỗi thứ 2)"} />{" "}</div>
               </div>
             </>
           )}
@@ -775,8 +729,7 @@ export default function SpeakingPractice() {
                 alignItems: "center",
                 gap: "8px"
               }}>
-                <FaClock /> Hoạt động gần nhất
-              </h3>
+                <FaClock />{" "}<UiText text={"Hoạt động gần nhất"} />{" "}</h3>
               <button
                 onClick={handleViewHistory}
                 style={{
@@ -789,16 +742,12 @@ export default function SpeakingPractice() {
                   fontSize: "14px",
                   fontWeight: "500"
                 }}
-              >
-                Xem lịch sử
-              </button>
+              >{" "}<UiText text={"Xem lịch sử"} />{" "}</button>
             </div>
             {loadingDashboard ? (
-              <p style={{ textAlign: "center", color: "#666" }}>Đang tải...</p>
+              <p style={{ textAlign: "center", color: "#666" }}><UiText text={"Đang tải..."} /></p>
             ) : recentActivities.length === 0 ? (
-              <p style={{ textAlign: "center", color: "#999", fontSize: "14px" }}>
-                Chưa có hoạt động nào
-              </p>
+              <p style={{ textAlign: "center", color: "#999", fontSize: "14px" }}>{" "}<UiText text={"Chưa có hoạt động nào"} />{" "}</p>
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
                 {recentActivities.map((activity, index) => (
@@ -814,15 +763,14 @@ export default function SpeakingPractice() {
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <div>
                         <div style={{ fontWeight: "600", color: "#111", marginBottom: "4px" }}>
-                          {new Date(activity.practice_day).toLocaleDateString("vi-VN", {
+                          <UiText>{new Date(activity.practice_day).toLocaleDateString('en-GB', {
                             day: "2-digit",
                             month: "2-digit",
                             year: "numeric"
-                          })}
+                          })}</UiText>
                         </div>
                         <div style={{ fontSize: "12px", color: "#666" }}>
-                          {activity.total_sessions} lần luyện tập
-                        </div>
+                          <UiText>{activity.total_sessions}</UiText>{" "}<UiText text={"lần luyện tập"} />{" "}</div>
                       </div>
                       <div style={{ textAlign: "right" }}>
                         <div style={{ 
@@ -830,11 +778,9 @@ export default function SpeakingPractice() {
                           color: activity.is_future || activity.max_score === null ? "#999" : "#10b981",
                           fontSize: "20px"
                         }}>
-                          {activity.is_future || activity.max_score === null ? "?" : `${activity.max_score}/100`}
+                          <UiText>{activity.is_future ? "Chưa đến ngày" : formatDashboardScore(activity.max_score, activity.assessment_status)}</UiText>
                         </div>
-                        <div style={{ fontSize: "11px", color: "#999", marginTop: "2px" }}>
-                          Điểm cao nhất
-                        </div>
+                        <div style={{ fontSize: "11px", color: "#999", marginTop: "2px" }}>{" "}<UiText text={"Điểm cao nhất"} />{" "}</div>
                       </div>
                     </div>
                   </div>
@@ -859,14 +805,11 @@ export default function SpeakingPractice() {
             alignItems: "center",
             gap: "8px"
           }}>
-            <FaTrophy /> Bảng xếp hạng
-          </h3>
+            <FaTrophy />{" "}<UiText text={"Bảng xếp hạng"} />{" "}</h3>
           {loadingDashboard ? (
-            <p style={{ textAlign: "center", color: "#666" }}>Đang tải...</p>
+            <p style={{ textAlign: "center", color: "#666" }}><UiText text={"Đang tải..."} /></p>
           ) : topRatings.length === 0 ? (
-            <p style={{ textAlign: "center", color: "#999", fontSize: "14px" }}>
-              Chưa có dữ liệu
-            </p>
+            <p style={{ textAlign: "center", color: "#999", fontSize: "14px" }}>{" "}<UiText text={"Chưa đủ kết quả đánh giá để xếp hạng."} />{" "}</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
               {topRatings.map((rating) => (
@@ -894,15 +837,14 @@ export default function SpeakingPractice() {
                     fontWeight: "700",
                     fontSize: "14px"
                   }}>
-                    {rating.rank}
+                    <UiText>{rating.rank}</UiText>
                   </div>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: "600", color: "#111", marginBottom: "4px" }}>
                       {rating.learner_name}
                     </div>
                     <div style={{ fontSize: "12px", color: "#666" }}>
-                      {rating.total_days} ngày luyện tập
-                    </div>
+                      <UiText>{rating.total_days}</UiText>{" "}<UiText text={"ngày luyện tập"} />{" "}</div>
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ 
@@ -910,7 +852,7 @@ export default function SpeakingPractice() {
                       color: "#f59e0b",
                       fontSize: "18px"
                     }}>
-                      {rating.average_score}/100
+                      <UiText>{formatDashboardScore(rating.average_score, rating.assessment_status)}</UiText>
                     </div>
                   </div>
                 </div>
@@ -952,7 +894,7 @@ export default function SpeakingPractice() {
               alignItems: "center",
               marginBottom: "20px"
             }}>
-              <h2 style={{ margin: 0, color: "#10b981" }}>Lịch sử luyện tập</h2>
+              <h2 style={{ margin: 0, color: "#10b981" }}><UiText text={"Lịch sử luyện tập"} /></h2>
               <button
                 onClick={() => setShowHistoryModal(false)}
                 style={{
@@ -962,14 +904,12 @@ export default function SpeakingPractice() {
                   cursor: "pointer",
                   color: "#666"
                 }}
-              >
-                ×
-              </button>
+              >{" "}<UiText text={"×"} />{" "}</button>
             </div>
             {loadingHistory ? (
-              <p style={{ textAlign: "center", color: "#666" }}>Đang tải...</p>
+              <p style={{ textAlign: "center", color: "#666" }}><UiText text={"Đang tải..."} /></p>
             ) : weeklyHistory.length === 0 ? (
-              <p style={{ textAlign: "center", color: "#999" }}>Chưa có lịch sử</p>
+              <p style={{ textAlign: "center", color: "#999" }}><UiText text={"Chưa có lịch sử"} /></p>
             ) : (
               <>
                 {/* Navigation */}
@@ -995,11 +935,9 @@ export default function SpeakingPractice() {
                       fontSize: "14px",
                       fontWeight: "500"
                     }}
-                  >
-                    ← Tuần trước
-                  </button>
+                  >{" "}<UiText text={"← Tuần trước"} />{" "}</button>
                   <div style={{ fontSize: "14px", color: "#666" }}>
-                    {historyOffset === 0 ? "Tuần hiện tại" : `Tuần trước ${historyOffset}`}
+                    <UiText>{historyOffset === 0 ? "Tuần hiện tại" : `Tuần trước ${historyOffset}`}</UiText>
                   </div>
                   <button
                     onClick={handleHistoryNext}
@@ -1014,9 +952,7 @@ export default function SpeakingPractice() {
                       fontSize: "14px",
                       fontWeight: "500"
                     }}
-                  >
-                    Tuần sau →
-                  </button>
+                  >{" "}<UiText text={"Tuần sau →"} />{" "}</button>
                 </div>
 
                 {/* Weekly History */}
@@ -1042,14 +978,14 @@ export default function SpeakingPractice() {
                             color: "#111",
                             fontSize: "16px"
                           }}>
-                            {weekStart.toLocaleDateString("vi-VN", {
+                            <UiText>{weekStart.toLocaleDateString('en-GB', {
                               day: "2-digit",
                               month: "2-digit"
-                            })} - {weekEnd.toLocaleDateString("vi-VN", {
+                            })}</UiText> - <UiText>{weekEnd.toLocaleDateString('en-GB', {
                               day: "2-digit",
                               month: "2-digit",
                               year: "numeric"
-                            })}
+                            })}</UiText>
                           </div>
                           <div style={{
                             display: "flex",
@@ -1058,10 +994,8 @@ export default function SpeakingPractice() {
                             color: "#666"
                           }}>
                             <div>
-                              <strong style={{ color: "#10b981" }}>{week.total_sessions}</strong> lần luyện tập
-                            </div>
-                            <div>
-                              Điểm TB: <strong style={{ color: "#10b981" }}>{week.average_score}/100</strong>
+                              <strong style={{ color: "#10b981" }}><UiText>{week.total_sessions}</UiText></strong>{" "}<UiText text={"lần luyện tập"} />{" "}</div>
+                            <div>{" "}<UiText text={"Điểm TB:"} />{" "}<strong style={{ color: "#10b981" }}><UiText>{formatDashboardScore(week.average_score, week.assessment_status)}</UiText></strong>
                             </div>
                           </div>
                         </div>
@@ -1077,15 +1011,15 @@ export default function SpeakingPractice() {
                             }}>
                               <div>
                                 <div style={{ fontWeight: "500", color: "#111", fontSize: "14px" }}>
-                                  {activity.activity_type}
+                                  <UiText>{activity.activity_type}</UiText>
                                 </div>
                                 <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
-                                  {new Date(activity.practice_date).toLocaleDateString("vi-VN", {
+                                  <UiText>{new Date(activity.practice_date).toLocaleDateString('en-GB', {
                                     day: "2-digit",
                                     month: "2-digit",
                                     hour: "2-digit",
                                     minute: "2-digit"
-                                  })}
+                                  })}</UiText>
                                 </div>
                               </div>
                               <div style={{
@@ -1093,7 +1027,7 @@ export default function SpeakingPractice() {
                                 color: "#10b981",
                                 fontSize: "18px"
                               }}>
-                                {activity.average_score}/100
+                                <UiText>{formatDashboardScore(activity.average_score, activity.assessment_status)}</UiText>
                               </div>
                             </div>
                           ))}

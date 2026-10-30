@@ -1,7 +1,48 @@
+import { CURRENT_PURCHASE_JOIN } from "../../../shared/purchaseLedger.js";
+import {normalizeChallengeLevel} from '../../../shared/challengeLevels.js';
 // Mentor Service
 import pool from "../config/db.js";
 import { getWeekRange, validateWeeklyConstraint } from "./utils.js";
 import * as mentorAiService from "./mentorAiService.js";
+import { serializeMentorTranscriptAssessment } from "../utils/transcriptAssessmentSerializer.js";
+
+function normalizeMentorReviewScores(scores) {
+  const normalized = {};
+  for (const field of ["final_score", "pronunciation_score", "fluency_score"]) {
+    const value = scores[field];
+    if (value === null || value === undefined || value === "") {
+      normalized[field] = null;
+      continue;
+    }
+    const score = typeof value === "number" || (typeof value === "string" && value.trim())
+      ? Number(value)
+      : Number.NaN;
+    if (!Number.isFinite(score) || score < 0 || score > 100) {
+      throw Object.assign(new Error(`Mentor ${field} must be between 0 and 100`), {
+        status: 400,
+        code: "MENTOR_SCORE_INVALID"
+      });
+    }
+    normalized[field] = score;
+  }
+  return normalized;
+}
+
+function createMentorReviewContract(review, status = "completed") {
+  return {
+    type: "mentor_review",
+    source: "mentor",
+    method: "human_review",
+    scale: "0-100",
+    status,
+    metrics: {
+      final_score: review.final_score ?? null,
+      pronunciation: review.pronunciation_score ?? null,
+      fluency: review.fluency_score ?? null
+    },
+    error: null
+  };
+}
 
 /* =========================
   Mentor CRUD and helpers
@@ -86,53 +127,89 @@ export async function removeMentor(id) {
   Learners
   ========================= */
 
-export async function getLearnersByMentor(mentorId) {
-  const mentorUserIdRes = await pool.query(
-    `SELECT user_id FROM mentors WHERE id = $1`,
-    [mentorId]
-  );
-  const mentorUserId = mentorUserIdRes.rows[0]?.user_id;
-  
-  if (!mentorUserId) {
-    const result = await pool.query(`
-      SELECT lp.*, l.user_id,
-            NULL AS report_id, NULL AS report,
-            NULL AS report_status, NULL AS report_reply,
-            NULL AS reply_by, NULL AS reply_at
-      FROM learner_package_view lp
-      JOIN learners l ON lp.learner_id = l.id
-      WHERE lp.mentor_id = $1
-      ORDER BY lp.learner_id DESC
-    `, [mentorId]);
-    return result.rows;
-  }
-  
-  const result = await pool.query(`
-    SELECT lp.*, l.user_id,
-          r.id AS report_id, 
-          r.content AS report,
-          r.status AS report_status, 
-          r.reply AS report_reply,
-          r.reply_by, 
-          r.reply_at
-    FROM learner_package_view lp
-    JOIN learners l ON lp.learner_id = l.id
-    LEFT JOIN (
-      SELECT r1.*
-      FROM reports r1
-      INNER JOIN (
-        SELECT target_id, MAX(created_at) AS max_created_at
-        FROM reports
-        WHERE reporter_id = $2
-        GROUP BY target_id
-      ) r2 ON r1.target_id = r2.target_id 
-           AND r1.created_at = r2.max_created_at
-           AND r1.reporter_id = $2
-    ) r ON r.target_id = l.user_id
-    WHERE lp.mentor_id = $1
-    ORDER BY lp.learner_id DESC
-  `, [mentorId, mentorUserId]);
+// One assignment snapshot, one relevant package and one latest report per Learner.
+export async function getLearnersByMentor(mentorId, db = pool) {
+  const result = await db.query(`
+    SELECT l.id AS learner_id,u.name AS learner_name,u.email,u.phone,u.dob,
+      l.user_id,l.mentor_id,l.start_date,l.note,u.status AS account_status,
+      lp.purchase_id,
+      CASE WHEN p.status='active' AND lp.status='expired' THEN 'expired' ELSE p.status END AS status,
+      lp.created_at,p.renewed_at,p.changed_at,lp.package_id,lp.package_name,
+      pkg.price,lp.duration_days,p.expired_at,lp.expiry_date,lp.extra_days,pkg.original_price,
+      lp.days_left,COALESCE(lp.is_active,false) AS package_is_active,
+      r.id AS report_id,r.content AS report,r.status AS report_status,
+      r.reply AS report_reply,r.reply_by,r.reply_at
+    FROM learners l JOIN users u ON u.id=l.user_id JOIN mentors m ON m.id=l.mentor_id
+    ${CURRENT_PURCHASE_JOIN}
+    LEFT JOIN purchases p ON p.id=lp.purchase_id
+    LEFT JOIN packages pkg ON pkg.id=lp.package_id
+    LEFT JOIN LATERAL (
+      SELECT id,content,status,reply,reply_by,reply_at FROM reports
+      WHERE target_id=l.user_id AND reporter_id=m.user_id
+      ORDER BY created_at DESC NULLS LAST,id DESC LIMIT 1
+    ) r ON TRUE
+    WHERE l.mentor_id=$1 ORDER BY l.id DESC
+  `,[mentorId]);
   return result.rows;
+}
+
+// Activity-only progress.  Legacy scores are not combined because their scale
+// and provenance are not consistently verifiable.
+export async function getAssignedLearnerProgress(learnerId, mentorId) {
+  // Resolve assignment in the same database snapshot as the report. A learner
+  // may have been reassigned after the HTTP guard ran.
+  const result = await pool.query(`
+    SELECT l.id AS learner_id,
+      json_build_object(
+        'total', (SELECT COUNT(*) FROM learner_challenges WHERE learner_id = l.id),
+        'completed', (SELECT COUNT(*) FROM learner_challenges lc WHERE lc.learner_id = l.id AND (
+          lc.status = 'completed' OR EXISTS (
+            SELECT 1 FROM submissions s JOIN ai_reports ar ON ar.submission_id=s.id
+            WHERE s.learner_id=lc.learner_id AND s.challenge_id=lc.challenge_id
+              AND s.status IN ('completed','reviewed') AND ar.overall_score BETWEEN 0 AND 100
+              AND ar.raw_ai_response->'assessment_contract'->>'status'='completed'
+              AND ar.raw_ai_response->'assessment_contract'->>'type'='transcript_language_analysis'
+              AND ar.raw_ai_response->'assessment_contract'->>'scale'='0-100'
+              AND ar.raw_ai_response->'assessment_contract'->>'source' IN ('openrouter','groq')
+              AND ar.raw_ai_response->'assessment_contract'->'metrics'->'language_quality'=to_jsonb(ar.overall_score)
+          )
+        )),
+        'feedback_count', (SELECT COUNT(*) FROM learner_challenges WHERE learner_id = l.id AND feedback_id IS NOT NULL),
+        'pending_submissions', (
+          SELECT COUNT(*) FROM submissions s
+          WHERE s.learner_id = l.id AND s.status IN ('pending', 'submitted', 'pending_transcription', 'processing')
+            AND NOT EXISTS (SELECT 1 FROM feedbacks f WHERE f.submission_id = s.id)
+        )
+      ) AS challenges,
+      json_build_object(
+        'total_sessions', (SELECT COUNT(*) FROM speaking_practice_sessions WHERE learner_id = l.id),
+        'completed_sessions', (SELECT COUNT(*) FROM speaking_practice_sessions WHERE learner_id = l.id AND status = 'completed')
+      ) AS speaking_practice,
+      json_build_object(
+        'total_sessions',(SELECT COUNT(*) FROM story_sessions WHERE learner_id=l.id),
+        'practiced_sessions',(SELECT COUNT(DISTINCT s.id) FROM story_sessions s JOIN story_conversations c ON c.session_id=s.id
+          WHERE s.learner_id=l.id AND c.message_type='user' AND LENGTH(TRIM(COALESCE(c.text_content,'')))>0 AND c.created_at<=NOW())
+      ) AS story,
+      json_build_object(
+        'total_sessions',(SELECT COUNT(*) FROM public.scenario_world_sessions WHERE learner_id=l.id),
+        'completed_sessions',(SELECT COUNT(*) FROM public.scenario_world_sessions WHERE learner_id=l.id AND status='completed' AND revision>0 AND updated_at<=NOW())
+      ) AS scenario_world,
+      COALESCE((
+        SELECT json_agg(recent ORDER BY recent.reviewed_at DESC NULLS LAST, recent.challenge_id DESC)
+        FROM (
+          SELECT c.id AS challenge_id, c.title, f.updated_at AS reviewed_at,
+                 (NULLIF(BTRIM(f.content), '') IS NOT NULL) AS has_feedback
+          FROM learner_challenges lc
+          JOIN challenges c ON c.id = lc.challenge_id
+          JOIN feedbacks f ON f.id = lc.feedback_id AND f.learner_id = lc.learner_id
+          WHERE lc.learner_id = l.id
+          ORDER BY f.updated_at DESC NULLS LAST, c.id DESC
+          LIMIT 5
+        ) recent
+      ), '[]'::json) AS recent_feedback
+    FROM learners l WHERE l.id = $1 AND l.mentor_id = $2
+  `, [learnerId, mentorId]);
+  return result.rows[0] || null;
 }
 
 export async function getMentorByUserId(userId) {
@@ -147,10 +224,10 @@ export async function getMentorByUserId(userId) {
   return result.rows[0];
 }
 
-export async function updateLearnerNote(learnerId, note) {
+export async function updateLearnerNote(learnerId, note, mentorId) {
   const result = await pool.query(
-    "UPDATE learners SET note = $1, updated_at = NOW() WHERE id = $2 RETURNING *",
-    [note, learnerId]
+    "UPDATE learners SET note = $1, updated_at = NOW() WHERE id = $2 AND mentor_id=$3 RETURNING id,mentor_id,note",
+    [note, learnerId, mentorId]
   );
   return result.rows[0];
 }
@@ -179,7 +256,20 @@ export async function createResource({ mentor_id, title, description, type, file
   return result.rows[0];
 }
 
-export async function updateResource(id, fields) {
+export async function updateResource(id, fields, mentorId = null) {
+  // Ownership check: nếu mentorId được cung cấp, chỉ update nếu resource thuộc mentor đó
+  if (mentorId !== null) {
+    const own = await pool.query(
+      "SELECT id FROM mentor_resources WHERE id = $1 AND mentor_id = $2",
+      [parseInt(id), parseInt(mentorId)]
+    );
+    if (own.rowCount === 0) {
+      const exists = await pool.query("SELECT id FROM mentor_resources WHERE id = $1", [parseInt(id)]);
+      if (exists.rowCount === 0) return null;
+      return { forbidden: true };
+    }
+  }
+
   const updates = [];
   const values = [];
   let paramIndex = 1;
@@ -230,14 +320,37 @@ export async function updateResource(id, fields) {
   return result.rows[0];
 }
 
-export async function deleteResource(id) {
-  await pool.query("DELETE FROM mentor_resources WHERE id=$1", [id]);
+export async function deleteResource(id, mentorId = null) {
+  if (mentorId !== null) {
+    const own = await pool.query(
+      "SELECT id FROM mentor_resources WHERE id = $1 AND mentor_id = $2",
+      [parseInt(id), parseInt(mentorId)]
+    );
+    if (own.rowCount === 0) {
+      const exists = await pool.query("SELECT id FROM mentor_resources WHERE id = $1", [parseInt(id)]);
+      if (exists.rowCount === 0) return null;
+      return { forbidden: true };
+    }
+  }
+  await pool.query("DELETE FROM mentor_resources WHERE id=$1", [parseInt(id)]);
+  return true;
 }
 
-export async function toggleResourceVisibility(id, is_published) {
+export async function toggleResourceVisibility(id, is_published, mentorId = null) {
+  if (mentorId !== null) {
+    const own = await pool.query(
+      "SELECT id FROM mentor_resources WHERE id = $1 AND mentor_id = $2",
+      [parseInt(id), parseInt(mentorId)]
+    );
+    if (own.rowCount === 0) {
+      const exists = await pool.query("SELECT id FROM mentor_resources WHERE id = $1", [parseInt(id)]);
+      if (exists.rowCount === 0) return null;
+      return { forbidden: true };
+    }
+  }
   const result = await pool.query(
     `UPDATE mentor_resources SET is_published = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-    [is_published, id]
+    [is_published, parseInt(id)]
   );
   return result.rows[0];
 }
@@ -364,12 +477,15 @@ export async function getChallengesByTopic(topicId) {
 
 export async function getChallengesByMentor(mentorId) {
   const result = await pool.query(
-    `SELECT c.* FROM challenges c
+    `SELECT c.*,
+       (EXISTS(SELECT 1 FROM learner_challenges lc WHERE lc.challenge_id=c.id)
+        OR EXISTS(SELECT 1 FROM submissions s WHERE s.challenge_id=c.id)) AS has_activity
+     FROM challenges c
      WHERE c.mentor_id = $1
-     ORDER BY c.created_at DESC`,
+     ORDER BY c.created_at DESC, c.id DESC`,
     [parseInt(mentorId)]
   );
-  return result.rows;
+  return result.rows.map(row=>({...row,level:normalizeChallengeLevel(row.level)}));
 }
 
 export async function createChallenge(mentorId, title, description, type, level, created_by) {
@@ -381,35 +497,21 @@ export async function createChallenge(mentorId, title, description, type, level,
   
   const challenge = result.rows[0];
   
-  // Lưu để AI học (async, không block)
-  try {
-    // Lưu challenge creation để AI học (async, không block)
-    try {
-      const token = process.env.INTERNAL_SERVICE_TOKEN || ""; // Optional internal token
-      await fetch(`${process.env.AI_SERVICE_URL || 'http://localhost:4010'}/api/ai/challenge/learn-creation`, {
-        method: 'POST',
-        headers: { 
-          'Content-Type': 'application/json',
-          'authorization': token ? `Bearer ${token}` : ''
-        },
-        body: JSON.stringify({
-          challengeId: challenge.id,
-          mentorId: parseInt(mentorId)
-        })
-      }).catch(err => {
-        console.warn("⚠️ Failed to save challenge creation for AI learning:", err);
-      });
-    } catch (err) {
-      console.warn("⚠️ Failed to notify AI Service about challenge creation:", err);
-    }
-  } catch (err) {
-    // Ignore errors
-  }
-  
   return challenge;
 }
 
-export async function deleteTopic(topicId) {
+export async function deleteTopic(topicId, mentorId = null) {
+  if (mentorId !== null) {
+    const own = await pool.query(
+      "SELECT id FROM topics WHERE id = $1 AND mentor_id = $2",
+      [parseInt(topicId), parseInt(mentorId)]
+    );
+    if (own.rowCount === 0) {
+      const exists = await pool.query("SELECT id FROM topics WHERE id = $1", [parseInt(topicId)]);
+      if (exists.rowCount === 0) return null;
+      return { forbidden: true };
+    }
+  }
   const result = await pool.query(
     `DELETE FROM topics WHERE id = $1 RETURNING *`,
     [parseInt(topicId)]
@@ -476,11 +578,15 @@ export async function getSubmissionForMentor(submissionId, mentorId) {
     let word_analysis = null;
     let segments = null;
     let analysis = null;
+    let rawAiResponse = {};
     try {
       word_analysis = typeof row.word_analysis === "string" ? JSON.parse(row.word_analysis) : row.word_analysis;
+      const savedSegments = typeof row.segments === "string" ? JSON.parse(row.segments) : row.segments;
+      segments = Array.isArray(savedSegments) && savedSegments.length ? savedSegments
+        : Array.isArray(transcript?.segments) && transcript.segments.length ? transcript.segments : null;
       if (row.raw_ai_response) {
-        const rawResp = typeof row.raw_ai_response === "string" ? JSON.parse(row.raw_ai_response) : row.raw_ai_response;
-        segments = rawResp?.segments || null;
+        rawAiResponse = typeof row.raw_ai_response === "string" ? JSON.parse(row.raw_ai_response) : row.raw_ai_response;
+        if (!segments && Array.isArray(rawAiResponse?.segments)) segments = rawAiResponse.segments;
         analysis = {
           feedback: row.suggestions ? (typeof row.suggestions === "string" ? JSON.parse(row.suggestions) : row.suggestions) : null
         };
@@ -489,18 +595,23 @@ export async function getSubmissionForMentor(submissionId, mentorId) {
       console.warn("[mentorService] Error parsing AI report data:", e);
     }
 
+    const transcriptAssessment = serializeMentorTranscriptAssessment(row, rawAiResponse);
     const submission = {
       id: row.id,
-      title: row.title,
+      title: row.title || row.challenge_title,
       audioUrl: row.audio_url || null,
       audio_url: row.audio_url || null,
       transcript,
       created_at: row.created_at,
       status: row.status,
-      overall_score: row.overall_score ?? null,
-      pronunciation_score: row.ai_pronunciation_score ?? null,
-      fluency_score: row.ai_fluency_score ?? null,
-      score: row.overall_score ?? null,
+      overall_score: transcriptAssessment.overall_score,
+      pronunciation_score: null,
+      fluency_score: null,
+      ai_pronunciation_score: null,
+      ai_fluency_score: null,
+      score: transcriptAssessment.score,
+      ai_assessment_contract: transcriptAssessment.ai_assessment_contract,
+      ai_raw_response: transcriptAssessment.ai_raw_response,
       mentor_pronunciation_score: row.feedback_pronunciation_score ?? null,
       mentor_fluency_score: row.feedback_fluency_score ?? null,
       final_score: row.feedback_final_score ?? null,
@@ -522,6 +633,7 @@ export async function getSubmissionForMentor(submissionId, mentorId) {
         fluency_score: row.feedback_fluency_score,
         feedback: row.feedback_text,
         audio_url: row.feedback_audio_url,
+        assessment_contract: null,
         created_at: row.feedback_created_at,
         updated_at: row.feedback_updated_at
       } : null,
@@ -565,6 +677,11 @@ export async function listSubmissionsForMentor(
   const res = await pool.query(
     `SELECT s.id, s.created_at, s.status, s.audio_url,
             s.challenge_id,
+            ar.overall_score AS ai_overall_score,
+            ar.pronunciation_score AS ai_pronunciation_score,
+            ar.fluency_score AS ai_fluency_score,
+            ar.suggestions AS ai_suggestions,
+            ar.raw_ai_response AS ai_raw_response,
             lc.id AS learner_challenge_id,
             lc.status AS challenge_status, lc.attempts,
             f.final_score, f.pronunciation_score, f.fluency_score,
@@ -580,15 +697,36 @@ export async function listSubmissionsForMentor(
        ON lc.challenge_id = s.challenge_id 
       AND lc.learner_id = l.id
      LEFT JOIN feedbacks f ON f.submission_id = s.id
+     LEFT JOIN ai_reports ar ON ar.submission_id = s.id
      WHERE l.mentor_id = $1
      ORDER BY s.created_at DESC
      LIMIT $2 OFFSET $3`,
     [mentorId, limit, offset]
   );
-  return res.rows;
+  return res.rows.map(row => {
+    let rawAiResponse = row.ai_raw_response || {};
+    if (typeof rawAiResponse === "string") {
+      try {
+        rawAiResponse = JSON.parse(rawAiResponse);
+      } catch {
+        rawAiResponse = {};
+      }
+    }
+    const transcriptAssessment = serializeMentorTranscriptAssessment(row, rawAiResponse);
+    return {
+      ...row,
+      ai_overall_score: transcriptAssessment.ai_overall_score,
+      ai_raw_response: transcriptAssessment.ai_raw_response,
+      ai_pronunciation_score: null,
+      ai_fluency_score: null,
+      ai_assessment_contract: transcriptAssessment.ai_assessment_contract
+    };
+  });
 }
 
 export async function saveMentorReview(submissionId, mentorId, payload) {
+  const normalizedScores = normalizeMentorReviewScores(payload);
+  payload = { ...payload, ...normalizedScores };
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -622,9 +760,9 @@ export async function saveMentorReview(submissionId, mentorId, payload) {
         `UPDATE feedbacks 
          SET content = COALESCE($1, content),
              audio_url = COALESCE($2, audio_url),
-             final_score = $3::numeric,
-             pronunciation_score = $4::numeric,
-             fluency_score = $5::numeric,
+             final_score = COALESCE($3::numeric, final_score),
+             pronunciation_score = COALESCE($4::numeric, pronunciation_score),
+             fluency_score = COALESCE($5::numeric, fluency_score),
              updated_at = NOW()
          WHERE submission_id = $6
          RETURNING id`,
@@ -676,34 +814,13 @@ export async function saveMentorReview(submissionId, mentorId, payload) {
   
     await client.query("COMMIT");
     
-    if (payload.audio_url && feedbackId) {
-      try {
-        const { enqueue } = await import("../utils/queue.js");
-        await enqueue("processMentorAudioFeedback", {
-          feedbackId,
-          audioUrl: payload.audio_url,
-          submissionId,
-          scores: {
-            final_score: payload.final_score,
-            pronunciation_score: payload.pronunciation_score,
-            fluency_score: payload.fluency_score
-          }
-        });
-        console.log("✅ Queued mentor audio feedback for AI learning:", feedbackId);
-      } catch (err) {
-        console.error("⚠️ Failed to queue mentor audio feedback:", err);
-      }
-    }
-    
-    // Note: progressAnalyticsService và challengeLearningService sẽ được migrate sau
-    // Tạm thời bỏ qua các async learning calls
-    
     const reviewData = {
       id: feedbackId,
       submission_id: submissionId,
       final_score: payload.final_score ?? null,
       pronunciation_score: payload.pronunciation_score ?? null,
       fluency_score: payload.fluency_score ?? null,
+      assessment_contract: createMentorReviewContract(payload),
       feedback: payload.feedback || null,
       audio_url: payload.audio_url || null
     };
@@ -725,11 +842,11 @@ export async function saveMentorReview(submissionId, mentorId, payload) {
 export async function listReviewsByMentor(mentorId, { limit = 50, offset = 0 } = {}) {
   const res = await pool.query(
     `SELECT r.*, s.id AS submission_id, s.title AS submission_title, u.name AS learner_name
-    FROM mentor_reviews r
+    FROM feedbacks r
     JOIN submissions s ON r.submission_id = s.id
     JOIN learners l ON s.learner_id = l.id
     JOIN users u ON l.user_id = u.id
-    WHERE r.mentor_id = $1
+    WHERE r.mentor_id = $1 AND l.mentor_id = $1
     ORDER BY r.created_at DESC
     LIMIT $2 OFFSET $3`,
     [mentorId, limit, offset]
@@ -737,7 +854,19 @@ export async function listReviewsByMentor(mentorId, { limit = 50, offset = 0 } =
   return res.rows;
 }
 
-export async function deleteChallenge(challengeId) {
+export async function deleteChallenge(challengeId, mentorId = null) {
+  // Ownership check: nếu mentorId được cung cấp, chỉ xóa nếu challenge thuộc mentor đó
+  if (mentorId !== null) {
+    const own = await pool.query(
+      "SELECT id FROM challenges WHERE id = $1 AND mentor_id = $2",
+      [parseInt(challengeId), parseInt(mentorId)]
+    );
+    if (own.rowCount === 0) {
+      const exists = await pool.query("SELECT id FROM challenges WHERE id = $1", [parseInt(challengeId)]);
+      if (exists.rowCount === 0) return null; // Challenge không tồn tại
+      return { forbidden: true }; // Challenge tồn tại nhưng không thuộc mentor này
+    }
+  }
   const res = await pool.query(`DELETE FROM challenges WHERE id = $1 RETURNING *`, [parseInt(challengeId)]);
   if (res.rowCount === 0) return null;
   return true;
@@ -784,7 +913,20 @@ export async function editChallengeAI(challengeId, content) {
   }
 }
 
-export async function updateChallenge(challengeId, fields) {
+export async function updateChallenge(challengeId, fields, mentorId = null) {
+  // Ownership check: nếu mentorId được cung cấp, chỉ update nếu challenge thuộc mentor đó
+  if (mentorId !== null) {
+    const own = await pool.query(
+      "SELECT id FROM challenges WHERE id = $1 AND mentor_id = $2",
+      [parseInt(challengeId), parseInt(mentorId)]
+    );
+    if (own.rowCount === 0) {
+      const exists = await pool.query("SELECT id FROM challenges WHERE id = $1", [parseInt(challengeId)]);
+      if (exists.rowCount === 0) return null;
+      return { forbidden: true };
+    }
+  }
+
   const updates = [];
   const values = [];
   let paramIndex = 1;
@@ -820,4 +962,3 @@ export async function updateChallenge(challengeId, fields) {
   );
   return result.rows[0];
 }
-

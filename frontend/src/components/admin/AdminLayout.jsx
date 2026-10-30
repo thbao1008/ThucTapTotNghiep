@@ -3,6 +3,7 @@ import React from "react";
 import { Outlet } from "react-router-dom";
 import AdminHeader from "./AdminHeader";
 import AdminSidebar from "./AdminSidebar";
+import '../../styles/admin-workspace.css';
 
 export default function AdminLayout({ children }) {
   return (
@@ -11,9 +12,7 @@ export default function AdminLayout({ children }) {
         <AdminSidebar />
       </aside>
       <div className="shell-main">
-        <header className="shell-header">
-          <AdminHeader />
-        </header>
+        <AdminHeader />
         <div className="admin-breadcrumbs">{/* breadcrumbs */}</div>
         <main className="shell-content">{children ?? <Outlet />}</main>
       </div>

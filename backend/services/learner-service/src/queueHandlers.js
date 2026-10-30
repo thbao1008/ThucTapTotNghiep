@@ -4,10 +4,19 @@ import * as learnerService from "./services/learnerService.js";
 // TODO: Replace with API calls to AI Service
 // import * as learnerAiService from "./services/learnerAiService.js";
 import { runWhisperX } from "./utils/whisperxRunner.js";
+import { analyzeLearnerTranscript } from "./utils/aiServiceClient.js";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
 import pool from "./config/db.js";
+import {
+  hasValidSpeakingPracticeResult,
+  evaluateSpeakingContent
+} from "./utils/speakingPracticeAnalysis.js";
+import { createAnalyzeSubmissionHandler } from "./utils/analyzeSubmissionJob.js";
+import { createSubmissionWorkerLock } from "./utils/submissionWorkerLock.js";
+import {claimSpeakingRound,acquirePracticeWorkerLease} from './utils/practiceSessionEnd.js';
+import {practiceRetention} from './utils/practiceRetentionRuntime.js';
 
 /**
  * Tìm project root (đi lên từ learner-service/src đến backend)
@@ -30,134 +39,69 @@ function audioUrlToLocalPath(audioUrl) {
 }
 
 // Queue handler để xử lý submission analysis
-registerProcessor("analyzeSubmission", async (job) => {
-  const { submissionId } = job.data;
-  console.log("🔄 Processing analyzeSubmission job:", submissionId);
-
-  const sub = await learnerService.getSubmissionById(submissionId);
-  if (!sub) {
-    console.warn("⚠️ Submission not found:", submissionId);
-    return;
+registerProcessor("analyzeSubmission", createAnalyzeSubmissionHandler({
+  service: learnerService,
+  withSubmissionLock: createSubmissionWorkerLock({ pool, service: learnerService }),
+  transcribeAudio: runWhisperX,
+  resolveAudioPath: audioUrlToLocalPath,
+  fileExists: fs.existsSync,
+  logger: console,
+  analyzeTranscript: async ({ transcriptText, challenge }) => {
+    return analyzeLearnerTranscript(transcriptText, { challenge }, { timeoutMs: 120_000 });
   }
-
-  let transcript = sub.transcript ?? null;
-
-  // Nếu chưa có transcript thì chạy WhisperX
-  if (!transcript) {
-    if (!sub.audio_url) {
-      console.warn("⚠️ No audio_url to transcribe:", submissionId);
-      await learnerService.updateSubmissionStatus(submissionId, "failed");
-      return;
-    }
-
-    const localPath = audioUrlToLocalPath(sub.audio_url);
-    if (!localPath || !fs.existsSync(localPath)) {
-      console.error("❌ Local audio file not found:", localPath);
-      await learnerService.updateSubmissionStatus(submissionId, "failed");
-      return;
-    }
-
-    try {
-      console.log("🔊 Transcribing audio:", localPath);
-      const { json: transcriptJson } = await runWhisperX(localPath, {
-        model: "base",
-        computeType: "float32",
-        timeoutMs: 3 * 60 * 1000,
-      });
-
-      if (transcriptJson) {
-        await learnerService.updateSubmissionTranscript(submissionId, transcriptJson);
-        transcript = transcriptJson;
-
-        if (Array.isArray(transcriptJson.segments)) {
-          await learnerService.updateSubmissionSegments(submissionId, transcriptJson.segments);
-        }
-
-        console.log("📝 Transcript + segments saved:", submissionId);
-      } else {
-        console.warn("⚠️ Empty transcript JSON:", submissionId);
-        await learnerService.updateSubmissionStatus(submissionId, "pending_transcription");
-        return;
-      }
-    } catch (err) {
-      console.error("❌ Transcription failed:", submissionId, err);
-      await learnerService.updateSubmissionStatus(submissionId, "failed");
-      return;
-    }
-  }
-
-  // Phân tích transcript bằng AI Service
-  try {
-    console.log("🧠 Analyzing transcript:", submissionId);
-
-    const challenge = await learnerService.getChallengeById(sub.challenge_id);
-
-    // Gọi qua API Gateway thay vì trực tiếp đến AI Service
-    // Extract transcript text - handle both object and string formats
-    let transcriptText = "";
-    if (typeof transcript === "string") {
-      transcriptText = transcript;
-    } else if (transcript && typeof transcript === "object") {
-      transcriptText = transcript.text || (transcript.segments || []).map(s => s.text || "").join(" ") || "";
-    }
-    
-    if (!transcriptText || transcriptText.trim().length === 0) {
-      console.error("❌ Empty transcript text:", submissionId);
-      await learnerService.updateSubmissionStatus(submissionId, "failed");
-      return;
-    }
-
-    console.log(`[DEBUG] Sending transcript to AI Service (length: ${transcriptText.length}):`, transcriptText.substring(0, 100) + "...");
-    
-    const response = await fetch(`http://localhost:${process.env.API_GATEWAY_PORT || 4000}/api/ai/learner/analyze-transcript`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        transcript: transcriptText,
-        options: {
-          runTopicDetection: true,
-          challenge,
-          sampleTranscripts: []
-        }
-      })
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => "");
-      console.error(`❌ AI Service error ${response.status}:`, errorText);
-      throw new Error(`AI Service error: ${response.status} - ${errorText}`);
-    }
-
-    const analysis = await response.json();
-
-    if (!analysis || typeof analysis !== "object") {
-      console.error("❌ Invalid analysis result:", submissionId, analysis);
-      await learnerService.updateSubmissionStatus(submissionId, "failed");
-      return;
-    }
-
-    await learnerService.updateSubmissionAnalysis(submissionId, { ...analysis, transcript });
-    await learnerService.updateSubmissionStatus(submissionId, "completed");
-    console.log("✅ AI analysis saved:", submissionId);
-  } catch (err) {
-    console.error("❌ AI analysis failed:", submissionId, err);
-    await learnerService.updateSubmissionStatus(submissionId, "failed");
-  }
-});
+}));
 
 // Queue handler để xử lý speaking round (transcription + AI analysis)
 registerProcessor("processSpeakingRound", async (job) => {
   console.log("🚀 QUEUE HANDLER STARTED for speaking round");
   const { roundId, sessionId, audioUrl, prompt, level, time_taken, webSpeechTranscript, webSpeechHighlights: originalWebSpeechHighlights } = job.data;
-  let webSpeechHighlights = originalWebSpeechHighlights; // Mutable copy
+  const webSpeechHighlights = originalWebSpeechHighlights;
+  let analysisStatus = "completed";
+  let retryableError = null;
+  let claimToken=null;
+  const releaseMediaLease=await acquirePracticeWorkerLease(pool,roundId);
+  if(!releaseMediaLease)return;
   console.log("🔄 Processing speaking round:", roundId);
   console.log("🎤 Web Speech data received:", {
     hasTranscript: !!webSpeechTranscript,
-    highlightsLength: webSpeechHighlights ? webSpeechHighlights.length : 0,
-    highlights: webSpeechHighlights
+    highlightsLength: Array.isArray(webSpeechHighlights) ? webSpeechHighlights.length : 0
   });
 
+  // Processing timeout policy: 10 minutes
+  // Rounds stuck in 'processing' longer than this may be claimed for recovery
+  const PROCESSING_TIMEOUT_SECONDS = 10 * 60;
+
   try {
+    // ATOMIC CLAIM with fenced ownership and stale processing recovery
+    // A round is claimable if:
+    // 1. Not completed
+    // 2. Not currently processing by another worker (status != 'processing')
+    // 3. OR stuck in 'processing' for longer than timeout (stale)
+    //
+    // Each claim generates a unique claim_token that fences previous workers.
+    // Only the worker with the current claim_token can persist final results.
+    const claimResult = await claimSpeakingRound({database:pool,roundId,timeoutSeconds:PROCESSING_TIMEOUT_SECONDS});
+
+    if (claimResult.rowCount === 0) {
+      // Failed to claim: either already completed or another worker is processing
+      const currentRound = await pool.query(
+        "SELECT analysis, score, updated_at FROM speaking_practice_rounds WHERE id = $1",
+        [roundId]
+      );
+      if (!currentRound.rows[0]) {
+        throw new Error("Speaking round not found");
+      }
+      if (hasValidSpeakingPracticeResult(currentRound.rows[0])) {
+        console.log(`✅ Round ${roundId} already completed, skipping`);
+        return;
+      }
+      console.log(`⏭️  Round ${roundId} is being processed by another worker, skipping`);
+      return;
+    }
+
+    claimToken = claimResult.rows[0].analysis.claim_token;
+    console.log(`🔒 Claimed exclusive lock on round ${roundId} with token ${claimToken}`);
+
     // Transcribe audio
     const backendDir = getProjectRoot();
     const localPath = audioUrl.startsWith("/uploads/")
@@ -175,7 +119,7 @@ registerProcessor("processSpeakingRound", async (job) => {
           computeType: "float32"
         });
         transcript = transcriptJson;
-        console.log(`✅ WhisperX transcription completed: ${transcript?.text?.substring(0, 100)}...`);
+        console.log("✅ WhisperX transcription completed");
       } catch (err) {
         console.error("❌ Transcription error:", err.message);
         console.error("❌ Error stack:", err.stack);
@@ -190,270 +134,28 @@ registerProcessor("processSpeakingRound", async (job) => {
           console.log(`✅ WhisperX base model transcription completed: ${transcript?.text?.substring(0, 100)}...`);
         } catch (err2) {
           console.error("❌ Base model also failed:", err2.message);
-          // Không return, tiếp tục với transcript = null
+          if (!webSpeechTranscript && (!webSpeechHighlights || webSpeechHighlights.length === 0)) {
+            analysisStatus = "failed";
+            retryableError = err2;
+          }
         }
       }
     } else {
       console.error(`❌ Audio file not found: ${localPath}`);
-    }
-
-    // Nếu không có Web Speech highlights, tạo từ WhisperX transcript
-    if ((!webSpeechHighlights || !Array.isArray(webSpeechHighlights) || webSpeechHighlights.length === 0) && transcript && transcript.text) {
-      console.log(`🔄 Generating highlights from WhisperX transcript...`);
-      const transcriptText = transcript.text;
-      const transcriptWords = transcriptText.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-      const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
-      
-      // Tạo highlights bằng cách match transcript words với expected words
-      const generatedHighlights = [];
-      expectedWords.forEach((expectedWord, idx) => {
-        const cleanExpected = expectedWord.replace(/[.,!?;:]/g, "").trim();
-        if (!cleanExpected) return;
-        
-        const matched = transcriptWords.some(transcriptWord => {
-          const cleanTranscript = transcriptWord.replace(/[.,!?;:]/g, "").trim();
-          if (!cleanTranscript) return false;
-          if (cleanTranscript === cleanExpected) return true;
-          if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
-          if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
-          return false;
-        });
-        
-        if (matched) {
-          generatedHighlights.push(idx);
-        }
-      });
-      
-      webSpeechHighlights = generatedHighlights;
-      console.log(`✅ Generated ${generatedHighlights.length} highlights from WhisperX:`, generatedHighlights);
-    }
-
-    // Analyze với AI Service
-    let analysis = null;
-    let score = 0;
-    let feedback = "";
-    let errors = [];
-    let correctedText = "";
-
-    // ƯU TIÊN 1: Nếu có Web Speech highlights, dùng chúng để tính điểm ngay
-    if (webSpeechHighlights && Array.isArray(webSpeechHighlights) && webSpeechHighlights.length > 0) {
-      console.log(`🎯 Using Web Speech highlights for scoring: ${webSpeechHighlights.length} matched words`);
-      console.log(`🔍 Highlights data:`, webSpeechHighlights);
-      console.log(`🔍 Highlights types:`, webSpeechHighlights.map(h => typeof h));
-      
-      // Convert to numbers if they're strings
-      const numericHighlights = webSpeechHighlights.map(h => typeof h === 'string' ? parseInt(h, 10) : h);
-      console.log(`🔢 Numeric highlights:`, numericHighlights);
-      
-      const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
-      const matchedWords = expectedWords.filter((_, idx) => numericHighlights.includes(idx));
-      const missingWords = expectedWords.filter((_, idx) => !numericHighlights.includes(idx));
-      
-      // Tính điểm dựa trên highlights từ Web Speech
-      const scoreFromHighlights = Math.round((matchedWords.length / expectedWords.length) * 100);
-      
-      score = scoreFromHighlights;
-      feedback = scoreFromHighlights > 0 
-        ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
-        : "Bạn chưa nói đúng từ nào. Hãy nghe lại và nói theo prompt.";
-      analysis = {
-        score: scoreFromHighlights,
-        feedback: feedback,
-        missing_words: missingWords,
-        errors: [],
-        corrected_text: prompt
-      };
-      
-      console.log(`✅ Web Speech scoring: ${scoreFromHighlights}/100, matched=${matchedWords.length}/${expectedWords.length}`);
-    } else if (webSpeechTranscript && webSpeechTranscript.trim()) {
-      // Fallback: Dùng Web Speech transcript để tính điểm
-      console.log(`🎤 Using Web Speech transcript for scoring: "${webSpeechTranscript.substring(0, 100)}..."`);
-      
-      const transcriptWords = webSpeechTranscript.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-      const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
-      
-      // Tính số từ match từ Web Speech transcript
-      const matchedWords = expectedWords.filter(ew => {
-        const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
-        if (!cleanExpected) return false;
-        return transcriptWords.some(tw => {
-          const cleanTranscript = tw.replace(/[.,!?;:]/g, "").trim();
-          if (!cleanTranscript) return false;
-          if (cleanTranscript === cleanExpected) return true;
-          if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
-          if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
-          return false;
-        });
-      });
-      
-      // Tính điểm dựa trên số từ đúng
-      const scoreFromTranscript = Math.round((matchedWords.length / expectedWords.length) * 100);
-      const missingWords = expectedWords.filter(ew => !matchedWords.includes(ew));
-      
-      score = scoreFromTranscript;
-      feedback = scoreFromTranscript > 0 
-        ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
-        : "Không thể phân tích chính xác. Vui lòng thử lại.";
-      analysis = {
-        score: scoreFromTranscript,
-        feedback: feedback,
-        missing_words: missingWords,
-        errors: [],
-        corrected_text: prompt
-      };
-      
-      console.log(`✅ Web Speech transcript scoring: ${scoreFromTranscript}/100, matched=${matchedWords.length}/${expectedWords.length}`);
-    } else if (transcript) {
-      const transcriptText = transcript.text || (transcript.segments || []).map(s => s.text || "").join(" ");
-
-      try {
-        // QUAN TRỌNG: Dùng analyzePronunciation trực tiếp thay vì gọi API
-        // Để đảm bảo logic tính điểm dựa trên số từ đúng được áp dụng
-        const { analyzePronunciation } = await import("./services/speakingPracticeService.js");
-        
-        // Lấy learner_id từ session
-        const sessionInfo = await pool.query(
-          `SELECT learner_id FROM speaking_practice_sessions WHERE id = $1`,
-          [sessionId]
-        );
-        const learnerId = sessionInfo.rows[0]?.learner_id;
-        
-        analysis = await analyzePronunciation(transcriptText, prompt, level, roundId, sessionId, learnerId);
-        score = Math.round(analysis.score || 0);
-        feedback = analysis.feedback || "";
-        errors = analysis.errors || [];
-        correctedText = analysis.corrected_text || "";
-        
-        console.log(`✅ WhisperX analyzed, score=${score}, missing_words=${analysis?.missing_words?.length || 0}`);
-      } catch (err) {
-        console.error("❌ AI analysis error in queue handler:", err);
-        console.error("❌ Error stack:", err.stack);
-        
-        // Fallback cuối: Tính điểm dựa trên transcript matching
-        if (transcriptText && transcriptText.trim()) {
-          const transcriptWords = transcriptText.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-          const expectedWords = prompt.toLowerCase().split(/\s+/).map(w => w.replace(/[.,!?;:]/g, "")).filter(w => w.length > 0);
-          
-          // Tính số từ match
-          const matchedWords = expectedWords.filter(ew => {
-            const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
-            if (!cleanExpected) return false;
-            return transcriptWords.some(tw => {
-              const cleanTranscript = tw.replace(/[.,!?;:]/g, "").trim();
-              if (!cleanTranscript) return false;
-              if (cleanTranscript === cleanExpected) return true;
-              if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
-              if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
-              return false;
-            });
-          });
-          
-          // Tính điểm dựa trên số từ đúng
-          const fallbackScore = matchedWords.length > 0 
-            ? Math.round((matchedWords.length / expectedWords.length) * 100)
-            : 0;
-          
-          const missingWords = expectedWords.filter(ew => !matchedWords.includes(ew));
-          
-          score = fallbackScore;
-          feedback = fallbackScore > 0 
-            ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
-            : "Không thể phân tích chính xác. Vui lòng thử lại.";
-          analysis = {
-            score: fallbackScore,
-            feedback: feedback,
-            missing_words: missingWords,
-            errors: [],
-            corrected_text: prompt
-          };
-          
-          console.log(`⚠️ Using transcript fallback scoring: score=${fallbackScore}, matched=${matchedWords.length}/${expectedWords.length}`);
-        } else {
-          // Không có transcript
-          feedback = "Bạn chưa nói gì. Hãy thử lại và nói to, rõ ràng.";
-          score = 0;
-          analysis = {
-            score: 0,
-            feedback: feedback,
-            missing_words: prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0),
-            errors: [],
-            corrected_text: prompt
-          };
-        }
-      }
-    } else {
-      // Không có transcript từ WhisperX, kiểm tra Web Speech data
-      if (webSpeechHighlights && Array.isArray(webSpeechHighlights) && webSpeechHighlights.length > 0) {
-        console.log(`🎯 Using Web Speech highlights (no WhisperX transcript): ${webSpeechHighlights.length} matched words`);
-        
-        const expectedWords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-        const matchedWords = expectedWords.filter((_, idx) => webSpeechHighlights.includes(idx));
-        const missingWords = expectedWords.filter((_, idx) => !webSpeechHighlights.includes(idx));
-        
-        // Tính điểm dựa trên highlights từ Web Speech
-        const scoreFromHighlights = Math.round((matchedWords.length / expectedWords.length) * 100);
-        
-        score = scoreFromHighlights;
-        feedback = scoreFromHighlights > 0 
-          ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
-          : "Bạn chưa nói đúng từ nào. Hãy nghe lại và nói theo prompt.";
-        analysis = {
-          score: scoreFromHighlights,
-          feedback: feedback,
-          missing_words: missingWords,
-          errors: [],
-          corrected_text: prompt
-        };
-        
-        console.log(`✅ Web Speech scoring (no transcript): ${scoreFromHighlights}/100, matched=${matchedWords.length}/${expectedWords.length}`);
-      } else if (webSpeechTranscript && webSpeechTranscript.trim()) {
-        // Fallback: Dùng Web Speech transcript
-        console.log(`🎤 Using Web Speech transcript (no WhisperX): "${webSpeechTranscript.substring(0, 100)}..."`);
-        
-        const transcriptWords = webSpeechTranscript.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-        const expectedWords = prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0);
-        
-        const matchedWords = expectedWords.filter(ew => {
-          const cleanExpected = ew.replace(/[.,!?;:]/g, "").trim();
-          if (!cleanExpected) return false;
-          return transcriptWords.some(tw => {
-            const cleanTranscript = tw.replace(/[.,!?;:]/g, "").trim();
-            if (!cleanTranscript) return false;
-            if (cleanTranscript === cleanExpected) return true;
-            if (cleanTranscript.length >= cleanExpected.length && cleanTranscript.includes(cleanExpected)) return true;
-            if (cleanExpected.length >= cleanTranscript.length && cleanExpected.includes(cleanTranscript) && cleanTranscript.length >= 3) return true;
-            return false;
-          });
-        });
-        
-        const scoreFromTranscript = Math.round((matchedWords.length / expectedWords.length) * 100);
-        const missingWords = expectedWords.filter(ew => !matchedWords.includes(ew));
-        
-        score = scoreFromTranscript;
-        feedback = scoreFromTranscript > 0 
-          ? `Bạn đã nói đúng ${matchedWords.length}/${expectedWords.length} từ. ${missingWords.length > 0 ? `Cần cải thiện: ${missingWords.slice(0, 5).join(", ")}` : "Tuyệt vời!"}`
-          : "Không thể phân tích chính xác. Vui lòng thử lại.";
-        analysis = {
-          score: scoreFromTranscript,
-          feedback: feedback,
-          missing_words: missingWords,
-          errors: [],
-          corrected_text: prompt
-        };
-        
-        console.log(`✅ Web Speech transcript scoring (no WhisperX): ${scoreFromTranscript}/100, matched=${matchedWords.length}/${expectedWords.length}`);
-      } else {
-        score = 0;
-        feedback = "Bạn chưa nói gì. Hãy thử lại và nói to, rõ ràng.";
-        analysis = {
-          score: 0,
-          feedback: feedback,
-          missing_words: prompt.toLowerCase().split(/\s+/).filter(w => w.length > 0),
-          errors: [],
-          corrected_text: prompt
-        };
+      if (!webSpeechTranscript && (!webSpeechHighlights || webSpeechHighlights.length === 0)) {
+        analysisStatus = "failed";
       }
     }
+
+    const analysis = evaluateSpeakingContent({
+      prompt, webSpeechHighlights, webSpeechTranscript,
+      whisperTranscript: transcript?.text || (transcript?.segments || []).map(segment => segment.text || "").join(" ")
+    });
+    const score = analysis.score;
+    analysisStatus = analysis.status;
+    const feedback = analysis.feedback || "";
+    const errors = analysis.errors || [];
+    const correctedText = analysis.corrected_text || prompt;
 
     // Build word_analysis từ transcript
     let wordAnalysis = [];
@@ -468,34 +170,80 @@ registerProcessor("processSpeakingRound", async (job) => {
     }
 
     // Cập nhật database với kết quả (bao gồm missing_words để highlight từ sai)
+    // Only persist if this worker still holds the current claim_token (fencing)
     console.log(`📊 Final score before DB update: ${score}, analysis score: ${analysis?.score}`);
     try {
-      await pool.query(
+      const persistResult = await pool.query(
         `UPDATE speaking_practice_rounds 
-         SET transcript = $1, score = $2, analysis = $3
-         WHERE id = $4`,
+         SET transcript = $1, score = $2, analysis = $3, updated_at = NOW()
+         WHERE id = $4
+           AND analysis->>'claim_token' = $5
+         RETURNING id`,
         [
           transcript ? JSON.stringify(transcript) : null,
           score,
           JSON.stringify({
+            status: analysisStatus,
+            assessment_type: "transcript_match",
+            assessment_scope: "content_match_only",
+            assessment_contract: analysis.assessment_contract,
+            pronunciation_assessed: false,
             feedback,
             errors,
             corrected_text: correctedText || prompt,
             score,
             missing_words: analysis?.missing_words || [], // Các từ sai để highlight
-            word_analysis: wordAnalysis.length > 0 ? wordAnalysis : []
+            word_analysis: wordAnalysis.length > 0 ? wordAnalysis : [],
+            claim_token: claimToken // Preserve token to prevent future invalid updates
           }),
-          roundId
+          roundId,
+          claimToken
         ]
       );
+
+      if (persistResult.rowCount === 0) {
+        console.log(`⚠️  Round ${roundId} was reclaimed by another worker, discarding stale results`);
+        console.log(`    This worker's claim token ${claimToken} is no longer valid.`);
+        return; // Silently exit without throwing; this is expected behavior after reclaim
+      }
+
       console.log(`✅ Queue handler: Updated round ${roundId} with score ${score}, missing_words=${analysis?.missing_words?.length || 0}`);
     } catch (dbErr) {
       console.error(`❌ Database update error in queue handler for round ${roundId}:`, dbErr);
+      throw dbErr;
     }
 
     console.log("✅ Speaking round processed:", roundId);
+    if (retryableError) {
+      throw retryableError;
+    }
   } catch (err) {
     console.error("❌ Process speaking round error:", err);
+    try {
+      await pool.query(
+        `UPDATE speaking_practice_rounds
+         SET score = NULL, analysis = $1, updated_at = NOW()
+         WHERE id = $2
+           AND analysis->>'status' IS DISTINCT FROM 'completed'
+           AND $3::text IS NOT NULL AND analysis->>'claim_token'=$3`,
+        [
+          JSON.stringify({
+            status: "failed",
+            score: null,
+            feedback: "Không thể hoàn tất phân tích. Vui lòng thử lại.",
+            errors: [{ type: "processing_error" }],
+            missing_words: []
+          }),
+          roundId,
+          claimToken
+        ]
+      );
+    } catch (updateErr) {
+      console.error("❌ Could not persist speaking-round failure:", updateErr.message);
+    }
+    throw err;
+  } finally {
+    await releaseMediaLease();
+    await practiceRetention.cleanup(sessionId).catch(error=>console.warn('Practice cleanup will retry',error.code||error.name));
   }
 });
-

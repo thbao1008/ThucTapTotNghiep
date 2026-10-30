@@ -1,8 +1,12 @@
+import { UiOption } from '../i18n/UiLanguage.jsx';
+import { englishText } from '../i18n/uiLanguage.js';
+import { UiText } from '../i18n/UiLanguage.jsx';
 import React, { useState, useCallback, useEffect } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { getAuth, saveAuth, clearAuth } from "../utils/auth";
 import userAvatar from "../assets/icons/users.png";
 import api from "../api";
+import {useAuth} from '../context/AuthContext.jsx';
 import "../styles/profile.css";
 import Cropper from "react-easy-crop";
 import Modal from "react-modal";
@@ -16,6 +20,7 @@ export default function ProfilePage() {
   const auth = getAuth();
   const currentUser = auth?.user;
   const navigate = useNavigate();
+  const {logout}=useAuth();
   
   // Lấy user ID từ current user
   const userId = currentUser?.id || currentUser?._id || currentUser?.user_id;
@@ -26,6 +31,7 @@ export default function ProfilePage() {
   const [editingBio, setEditingBio] = useState(false);
   const [bioInput, setBioInput] = useState("");
   const [savingBio, setSavingBio] = useState(false);
+  const [bioNotice, setBioNotice] = useState('');
   const [mentorId, setMentorId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(user?.avatar_url || user?.avatar || null);
@@ -221,6 +227,10 @@ export default function ProfilePage() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      if (res.data?.requiresLogin) {
+        await logout({ skipServer: true });
+        navigate('/login', { replace: true });
+      }
     } catch (err) {
       setMessage(err?.response?.data?.message || "Đổi mật khẩu thất bại");
     }
@@ -247,7 +257,7 @@ export default function ProfilePage() {
       } catch (err) {
         console.error("Error reloading mentorId:", err);
       }
-      alert("Không tìm thấy thông tin mentor. Vui lòng tải lại trang.");
+      alert(englishText("Không tìm thấy thông tin mentor. Vui lòng tải lại trang."));
       return;
     }
     
@@ -255,20 +265,18 @@ export default function ProfilePage() {
   }
 
   async function saveBioWithId(id) {
+    if (savingBio) return;
     setSavingBio(true);
+    setBioNotice('');
     try {
-      console.log("Saving bio:", { mentorId: id, bio: bioInput });
-      const res = await api.put(`/mentors/${id}`, {
+      const res = await api.patch(`/mentors/${id}/profile`, {
         bio: bioInput,
       });
-      console.log("Save bio response:", res.data);
-      setBio(bioInput);
+      setBio(res.data.mentor.bio);
       setEditingBio(false);
-      alert("Cập nhật giới thiệu thành công ✅");
+      setBioNotice('Cập nhật giới thiệu thành công ✅');
     } catch (err) {
-      console.error("Error saving bio:", err);
-      console.error("Error details:", err.response?.data);
-      alert(err?.response?.data?.message || "Lỗi khi cập nhật giới thiệu");
+      setBioNotice(err?.response?.data?.message || "Lỗi khi cập nhật giới thiệu");
     } finally {
       setSavingBio(false);
     }
@@ -277,24 +285,22 @@ export default function ProfilePage() {
   async function handleChangeSecurityQuestion(e) {
     e.preventDefault();
     // TODO: Implement security question update when schema is ready
-    alert("Tính năng đổi câu hỏi bảo mật đang được phát triển");
+    alert(englishText("Tính năng đổi câu hỏi bảo mật đang được phát triển"));
   }
 
   if (loading) {
-    return <div className="profile-fullscreen"><p>Đang tải...</p></div>;
+    return <div className="profile-fullscreen"><p><UiText text={"Đang tải..."} /></p></div>;
   }
 
   return (
     <div className="profile-fullscreen">
-      <h2>Thông tin cá nhân</h2>
+      <h2><UiText text={"Thông tin cá nhân"} /></h2>
 
       <div className="profile-container">
         {/* Avatar + nút cập nhật */}
         <div className="profile-avatar">
-          <img src={preview || userAvatar} alt={user.name || "User"} />
-          <label className="upload-btn">
-            Đổi avatar
-            <input type="file" accept="image/*" onChange={handleFileChange} />
+          <img src={preview || userAvatar} alt={englishText(user.name || "User")} />
+          <label className="upload-btn">{" "}<UiText text={"Đổi avatar"} />{" "}<input type="file" accept="image/*" onChange={handleFileChange} />
           </label>
         </div>
 
@@ -340,33 +346,35 @@ export default function ProfilePage() {
             />
           </div>
           <div className="modal-actions">
-            <button className="btn-primary" onClick={handleConfirm}>Xác nhận</button>
-            <button className="btn-secondary" onClick={() => setShowCropper(false)}>Hủy</button>
+            <button className="btn-primary" onClick={handleConfirm}><UiText text={"Xác nhận"} /></button>
+            <button className="btn-secondary" onClick={() => setShowCropper(false)}><UiText text={"Hủy"} /></button>
           </div>
         </Modal>
 
         {/* Thông tin chi tiết */}
         <div className="profile-details">
-          <div className="info-row"><strong>Họ tên:</strong> {user.name || "-"}</div>
-          <div className="info-row"><strong>Số điện thoại:</strong> {user.phone || "-"}</div>
-          <div className="info-row"><strong>Email:</strong> {user.email || "-"}</div>
+          {bioNotice && <p role="status"><UiText>{bioNotice}</UiText></p>}
+          <div className="info-row"><strong><UiText text={"Họ tên:"} /></strong> {user.name || "-"}</div>
+          <div className="info-row"><strong><UiText text={"Số điện thoại:"} /></strong> {user.phone || "-"}</div>
+          <div className="info-row"><strong><UiText text={"Email:"} /></strong> {user.email || "-"}</div>
           <div className="info-row">
-            <strong>Ngày sinh:</strong>{" "}
-            {user.dob ? new Date(user.dob).toLocaleDateString("vi-VN") : "Chưa cập nhật"}
+            <strong><UiText text={"Ngày sinh:"} /></strong>{" "}
+            <UiText>{user.dob ? new Date(user.dob).toLocaleDateString('en-GB') : "Chưa cập nhật"}</UiText>
           </div>
           
           {/* Bio (cho mentor) - có thể edit trực tiếp */}
           {(role === "mentor" || user.role?.toLowerCase() === "mentor") && (
             <div className="info-row bio-row">
-              <strong>Giới thiệu:</strong>
+              <strong><UiText text={"Giới thiệu:"} /></strong>
               {editingBio ? (
                 <div className="bio-edit-container">
                   <textarea
+                    maxLength={4000}
                     value={bioInput}
                     onChange={(e) => setBioInput(e.target.value)}
                     rows="4"
                     className="bio-textarea"
-                    placeholder="Nhập giới thiệu về bản thân..."
+                    placeholder={englishText("Nhập giới thiệu về bản thân...")}
                   />
                   <div className="bio-actions">
                     <button 
@@ -374,7 +382,7 @@ export default function ProfilePage() {
                       onClick={handleSaveBio}
                       disabled={savingBio}
                     >
-                      {savingBio ? "Đang lưu..." : "Lưu"}
+                      <UiText>{savingBio ? "Đang lưu..." : "Lưu"}</UiText>
                     </button>
                     <button 
                       className="btn-secondary btn-sm" 
@@ -383,14 +391,12 @@ export default function ProfilePage() {
                         setEditingBio(false);
                       }}
                       disabled={savingBio}
-                    >
-                      Hủy
-                    </button>
+                    >{" "}<UiText text={"Hủy"} />{" "}</button>
                   </div>
                 </div>
               ) : (
                 <div className="bio-display">
-                  <span>{bio || "Chưa cập nhật"}</span>
+                  <span><UiText>{bio || "Chưa cập nhật"}</UiText></span>
                   <button 
                     className="btn-link btn-edit-bio" 
                     onClick={() => {
@@ -398,7 +404,7 @@ export default function ProfilePage() {
                       setEditingBio(true);
                     }}
                   >
-                    {bio ? "Chỉnh sửa" : "Thêm giới thiệu"}
+                    <UiText>{bio ? "Chỉnh sửa" : "Thêm giới thiệu"}</UiText>
                   </button>
                 </div>
               )}
@@ -411,35 +417,33 @@ export default function ProfilePage() {
               {/* Đổi mật khẩu */}
               <div style={{ marginTop: "20px" }}>
                 {!showChangePassword && (
-                  <button className="btn-link" onClick={() => setShowChangePassword(true)}>
-                    Đổi mật khẩu
-                  </button>
+                  <button className="btn-link" onClick={() => setShowChangePassword(true)}>{" "}<UiText text={"Đổi mật khẩu"} />{" "}</button>
                 )}
 
                 {showChangePassword && (
                   <div className="change-password">
-                    <h3>Đổi mật khẩu</h3>
+                    <h3><UiText text={"Đổi mật khẩu"} /></h3>
                     <form onSubmit={handleChangePassword}>
                       <input 
                         type="password" 
-                        placeholder="Mật khẩu hiện tại"
+                        placeholder={englishText("Mật khẩu hiện tại")}
                         value={currentPassword} 
                         onChange={(e) => setCurrentPassword(e.target.value)} 
                       />
                       <input 
                         type="password" 
-                        placeholder="Mật khẩu mới"
+                        placeholder={englishText("Mật khẩu mới")}
                         value={newPassword} 
                         onChange={(e) => setNewPassword(e.target.value)} 
                       />
                       <input 
                         type="password" 
-                        placeholder="Xác nhận mật khẩu mới"
+                        placeholder={englishText("Xác nhận mật khẩu mới")}
                         value={confirmPassword} 
                         onChange={(e) => setConfirmPassword(e.target.value)} 
                       />
                       <div className="form-actions">
-                        <button type="submit" className="btn-primary">Cập nhật</button>
+                        <button type="submit" className="btn-primary"><UiText text={"Cập nhật"} /></button>
                         <button 
                           type="button" 
                           className="btn-secondary"
@@ -447,12 +451,10 @@ export default function ProfilePage() {
                             setShowChangePassword(false);
                             setMessage("");
                           }}
-                        >
-                          Hủy
-                        </button>
+                        >{" "}<UiText text={"Hủy"} />{" "}</button>
                       </div>
                     </form>
-                    {message && <p className="message">{message}</p>}
+                    {message && <p className="message"><UiText>{message}</UiText></p>}
                   </div>
                 )}
               </div>
@@ -460,21 +462,18 @@ export default function ProfilePage() {
               {/* Đổi câu hỏi bảo mật */}
               <div style={{ marginTop: "20px" }}>
                 {!showSecurityQuestion && (
-                  <button className="btn-link" onClick={() => setShowSecurityQuestion(true)}>
-                    Đổi câu hỏi bảo mật
-                  </button>
+                  <button className="btn-link" onClick={() => setShowSecurityQuestion(true)}>{" "}<UiText text={"Đổi câu hỏi bảo mật"} />{" "}</button>
                 )}
 
                 {showSecurityQuestion && (
                   <div className="change-password">
-                  <h3>{hasSecurityQuestion ? "Đổi câu hỏi bảo mật" : "Thiết lập câu hỏi bảo mật"}</h3>
-                  <p style={{ color: "#666", fontSize: "14px", marginBottom: "16px" }}>
-                    Câu hỏi bảo mật giúp bạn khôi phục mật khẩu nếu quên. {hasSecurityQuestion && "Để đổi câu hỏi, bạn cần nhập đúng câu trả lời của câu hỏi hiện tại."}
+                  <h3><UiText>{hasSecurityQuestion ? "Đổi câu hỏi bảo mật" : "Thiết lập câu hỏi bảo mật"}</UiText></h3>
+                  <p style={{ color: "#666", fontSize: "14px", marginBottom: "16px" }}>{" "}<UiText text={"Câu hỏi bảo mật giúp bạn khôi phục mật khẩu nếu quên."} />{" "}<UiText>{hasSecurityQuestion && "Để đổi câu hỏi, bạn cần nhập đúng câu trả lời của câu hỏi hiện tại."}</UiText>
                   </p>
 
                   {hasSecurityQuestion && (
                     <div style={{ marginBottom: "16px", padding: "12px", background: "#f0f7ff", borderRadius: "8px", borderLeft: "4px solid var(--primary)" }}>
-                      <strong>Câu hỏi hiện tại:</strong> {currentSecurityQuestion}
+                      <strong><UiText text={"Câu hỏi hiện tại:"} /></strong> <UiText>{currentSecurityQuestion}</UiText>
                     </div>
                   )}
 
@@ -502,7 +501,7 @@ export default function ProfilePage() {
                         security_answer: newSecurityAnswer.trim(),
                         old_answer: hasSecurityQuestion ? oldSecurityAnswer.trim() : null
                       });
-                      alert("✅ Cập nhật câu hỏi bảo mật thành công");
+                      alert(englishText("✅ Cập nhật câu hỏi bảo mật thành công"));
                       setCurrentSecurityQuestion(selectedQuestion);
                       setHasSecurityQuestion(true);
                       setShowSecurityQuestion(false);
@@ -518,62 +517,56 @@ export default function ProfilePage() {
                   }}>
                     {hasSecurityQuestion && (
                       <div className="field" style={{ marginBottom: "16px" }}>
-                        <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>
-                          Câu trả lời câu hỏi hiện tại *
-                        </label>
+                        <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>{" "}<UiText text={"Câu trả lời câu hỏi hiện tại *"} />{" "}</label>
                         <input
                           type="text"
                           className="input"
                           value={oldSecurityAnswer}
                           onChange={(e) => setOldSecurityAnswer(e.target.value)}
-                          placeholder="Nhập câu trả lời của câu hỏi hiện tại"
+                          placeholder={englishText("Nhập câu trả lời của câu hỏi hiện tại")}
                           style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ddd" }}
                         />
                       </div>
                     )}
 
                     <div className="field" style={{ marginBottom: "16px" }}>
-                      <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>
-                        Chọn câu hỏi bảo mật *
-                      </label>
+                      <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>{" "}<UiText text={"Chọn câu hỏi bảo mật *"} />{" "}</label>
                       <select
                         className="input"
                         value={selectedQuestion}
                         onChange={(e) => setSelectedQuestion(e.target.value)}
                         style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ddd" }}
                       >
-                        <option value="">-- Chọn câu hỏi --</option>
-                        <option value="Tên thú cưng đầu tiên của bạn?">Tên thú cưng đầu tiên của bạn?</option>
-                        <option value="Món ăn bạn thường ăn vào dịp sinh nhật thời nhỏ?">Món ăn bạn thường ăn vào dịp sinh nhật thời nhỏ?</option>
-                        <option value="Tên đường nơi bạn lớn lên?">Tên đường nơi bạn lớn lên?</option>
-                        <option value="Tên người bạn hàng xóm thân nhất hồi nhỏ?">Tên người bạn hàng xóm thân nhất hồi nhỏ?</option>
-                        <option value="Ngôi trường tiểu học đầu tiên bạn theo học?">Ngôi trường tiểu học đầu tiên bạn theo học?</option>
-                        <option value="Tên ông/bà thường gọi bạn ở nhà?">Tên ông/bà thường gọi bạn ở nhà?</option>
-                        <option value="Món ăn mẹ thường nấu cho bạn khi ốm?">Món ăn mẹ thường nấu cho bạn khi ốm?</option>
-                        <option value="Địa điểm gia đình bạn thường đi chơi vào dịp Tết?">Địa điểm gia đình bạn thường đi chơi vào dịp Tết?</option>
-                        <option value="Trò chơi dân gian bạn thích nhất hồi nhỏ?">Trò chơi dân gian bạn thích nhất hồi nhỏ?</option>
-                        <option value="Bộ phim đầu tiên bạn xem ở rạp?">Bộ phim đầu tiên bạn xem ở rạp?</option>
-                        <option value="Người bạn thân đầu tiên của bạn tên gì?">Người bạn thân đầu tiên của bạn tên gì?</option>
+                        <UiOption value="">{"-- Chọn câu hỏi --"}</UiOption>
+                        <UiOption value="Tên thú cưng đầu tiên của bạn?">{"Tên thú cưng đầu tiên của bạn?"}</UiOption>
+                        <UiOption value="Món ăn bạn thường ăn vào dịp sinh nhật thời nhỏ?">{"Món ăn bạn thường ăn vào dịp sinh nhật thời nhỏ?"}</UiOption>
+                        <UiOption value="Tên đường nơi bạn lớn lên?">{"Tên đường nơi bạn lớn lên?"}</UiOption>
+                        <UiOption value="Tên người bạn hàng xóm thân nhất hồi nhỏ?">{"Tên người bạn hàng xóm thân nhất hồi nhỏ?"}</UiOption>
+                        <UiOption value="Ngôi trường tiểu học đầu tiên bạn theo học?">{"Ngôi trường tiểu học đầu tiên bạn theo học?"}</UiOption>
+                        <UiOption value="Tên ông/bà thường gọi bạn ở nhà?">{"Tên ông/bà thường gọi bạn ở nhà?"}</UiOption>
+                        <UiOption value="Món ăn mẹ thường nấu cho bạn khi ốm?">{"Món ăn mẹ thường nấu cho bạn khi ốm?"}</UiOption>
+                        <UiOption value="Địa điểm gia đình bạn thường đi chơi vào dịp Tết?">{"Địa điểm gia đình bạn thường đi chơi vào dịp Tết?"}</UiOption>
+                        <UiOption value="Trò chơi dân gian bạn thích nhất hồi nhỏ?">{"Trò chơi dân gian bạn thích nhất hồi nhỏ?"}</UiOption>
+                        <UiOption value="Bộ phim đầu tiên bạn xem ở rạp?">{"Bộ phim đầu tiên bạn xem ở rạp?"}</UiOption>
+                        <UiOption value="Người bạn thân đầu tiên của bạn tên gì?">{"Người bạn thân đầu tiên của bạn tên gì?"}</UiOption>
                       </select>
                     </div>
 
                     <div className="field" style={{ marginBottom: "16px" }}>
-                      <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>
-                        Câu trả lời *
-                      </label>
+                      <label style={{ display: "block", marginBottom: "8px", fontWeight: 600 }}>{" "}<UiText text={"Câu trả lời *"} />{" "}</label>
                       <input
                         type="text"
                         className="input"
                         value={newSecurityAnswer}
                         onChange={(e) => setNewSecurityAnswer(e.target.value)}
-                        placeholder="Nhập câu trả lời"
+                        placeholder={englishText("Nhập câu trả lời")}
                         style={{ width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ddd" }}
                       />
                     </div>
 
                     {securityQuestionError && (
                       <div style={{ color: "#b00020", fontSize: "14px", marginBottom: "12px", padding: "8px", background: "#fff5f5", borderRadius: "6px" }}>
-                        {securityQuestionError}
+                        <UiText>{securityQuestionError}</UiText>
                       </div>
                     )}
 
@@ -583,7 +576,7 @@ export default function ProfilePage() {
                         className="btn-primary"
                         disabled={savingSecurityQuestion}
                       >
-                        {savingSecurityQuestion ? "Đang lưu..." : "Lưu"}
+                        <UiText>{savingSecurityQuestion ? "Đang lưu..." : "Lưu"}</UiText>
                       </button>
                       <button 
                         type="button" 
@@ -595,9 +588,7 @@ export default function ProfilePage() {
                           setOldSecurityAnswer("");
                           setSecurityQuestionError("");
                         }}
-                      >
-                        Hủy
-                      </button>
+                      >{" "}<UiText text={"Hủy"} />{" "}</button>
                     </div>
                   </form>
                   </div>

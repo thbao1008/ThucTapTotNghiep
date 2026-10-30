@@ -1,330 +1,77 @@
-import React, { useEffect, useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
-import {
-  FaChalkboardTeacher,
-  FaBookOpen,
-  FaAward,
-  FaLaptopCode,
-} from "react-icons/fa";
-import logo from "../assets/images/logo.png";
-import "../styles/home.css";
-import atmLogo from "../assets/payments/ATM.png";
-import paypalLogo from "../assets/payments/Paypal.png";
-import momoLogo from "../assets/payments/Momo.png";
-import zalopayLogo from "../assets/payments/Zalopay.png";
-import mentorImage from "../assets/images/mentor-intro.png";
-import viettelLogo from "../assets/partners/viettel.png";
-import vibLogo from "../assets/partners/VIB.jpg";
-import oxfordLogo from "../assets/partners/oxford.jpg";
-import ieltsLogo from "../assets/partners/ielts.png";
-import vnairlineLogo from "../assets/partners/vnairline.png";
-import api from "../api";
-
-// ===== Partners mẫu =====
-const samplePartners = [
-  { id: 1, name: "Tập đoàn Viettel", logo: viettelLogo },
-  { id: 2, name: "Ngân Hàng Quốc Tế VIB", logo: vibLogo },
-  { id: 3, name: "Oxford University", logo: oxfordLogo },
-  { id: 4, name: "IELTS Official", logo: ieltsLogo },
-  { id: 5, name: "Việt Nam Airline", logo: vnairlineLogo },
-];
+import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { FiArrowUpRight, FiMic, FiMessageCircle, FiCompass, FiCheck } from 'react-icons/fi';
+import api from '../api';
+import Brand from '../components/common/Brand.jsx';
+import { TranslationToggle, UiText } from '../i18n/UiLanguage.jsx';
+import '../styles/home-refresh.css';
 
 export default function Home() {
-  const navigate = useNavigate();
-  const introRef = useRef([]);
-  const sectionRefs = useRef({});
-  const [visibleSentences, setVisibleSentences] = useState([]);
-  const [visibleSections, setVisibleSections] = useState({});
   const [packages, setPackages] = useState([]);
-
-  // Lấy packages từ API
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
+  const sending = useRef(false);
+  const [status, setStatus] = useState('');
   useEffect(() => {
-    api.get("/packages/public")
-      .then((res) => {
-        console.log("📦 Packages response:", res.data);
-        const data = res.data;
-        const list = Array.isArray(data) ? data : (data.packages || []);
-        const sorted = list.sort((a, b) => (a.price || 0) - (b.price || 0));
-        console.log("📦 Sorted packages:", sorted);
-        setPackages(sorted);
-      })
-      .catch((err) => {
-        // Don't crash - just log and show empty state
-        console.warn("⚠️  Không thể load packages. Backend services có thể chưa sẵn sàng.");
-        console.warn("⚠️  Error details:", err.response?.data || err.message);
-        // Set empty array instead of crashing
-        setPackages([]);
-      });
-  }, []);
-
-  // Hàm xử lý đăng ký
-  const handleRegister = async (e) => {
-    e.preventDefault();
-    const formData = {
-      name: e.target.name.value,
-      email: e.target.email.value,
-      phone: e.target.phone.value,
-      note: "Đăng ký từ trang Home"
-    };
-
+    const c = new AbortController(); setLoading(true); setFailed(false);
+    api.get('/packages/public', {signal:c.signal, timeout:12000}).then(({data}) => {
+      const rows=Array.isArray(data)?data:data?.packages;
+      if(!Array.isArray(rows))throw Error('Invalid package list');
+      if(!c.signal.aborted)setPackages(rows);
+    }).catch(()=>{if(!c.signal.aborted)setFailed(true);}).finally(()=>{if(!c.signal.aborted)setLoading(false);});
+    return ()=>c.abort();
+  },[attempt]);
+  async function requestAccess(e) {
+    e.preventDefault(); if(sending.current || uncertain)return;
+    const form=e.currentTarget;
+    const fields=new FormData(form);
+    sending.current=true;setBusy(true);setStatus('');
     try {
-      const res = await api.post("/admin/support", formData);
-      if (res.status === 200 || res.status === 201) {
-        alert("✅ Đăng ký thành công! Admin sẽ nhận được thông tin hỗ trợ.");
-        e.target.reset();
-      } else {
-        alert("❌ Có lỗi xảy ra, vui lòng thử lại.");
-      }
-    } catch (err) {
-      console.error("Lỗi gửi đăng ký:", err);
-      alert("❌ Server error: " + (err.response?.data?.message || err.message));
+      await api.post('/admin/support',{name:fields.get('name'),email:fields.get('email'),phone:fields.get('phone'),note:'Access request from AESP home page'},{timeout:15000});
+      setStatus('Request sent. An administrator will review your details.');form.reset();
+    } catch(error) {
+      const rejected=error.response?.status>=400&&error.response.status<500&&error.response.status!==408;
+      setUncertain(!rejected);
+      setStatus(rejected?'Please check your details and try again.':'Your request could not be confirmed. Please contact your administrator before sending it again.');
     }
-  };
-  // Observer cho từng câu trong "Về AESP"
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const index = introRef.current.indexOf(entry.target);
-          if (entry.isIntersecting && index !== -1) {
-            setVisibleSentences((prev) =>
-              prev.includes(index) ? prev : [...prev, index]
-            );
-          }
-        });
-      },
-      { threshold: 0.3 }
-    );
-    introRef.current.forEach((el) => el && observer.observe(el));
-    return () => {
-      introRef.current.forEach((el) => el && observer.unobserve(el));
-    };
-  }, []);
-
-  // Observer cho các section khác
-  useEffect(() => {
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          const id = entry.target.getAttribute("id");
-          if (entry.isIntersecting && id) {
-            setVisibleSections((prev) => ({ ...prev, [id]: true }));
-          }
-        });
-      },
-      { threshold: 0.2 }
-    );
-    Object.values(sectionRefs.current).forEach((el) => el && observer.observe(el));
-    return () => {
-      Object.values(sectionRefs.current).forEach((el) => el && observer.unobserve(el));
-    };
-  }, []);
-
-  const introSentences = [
-    "AESP mang đến ứng dụng học tiếng Anh được hỗ trợ bởi AI, giúp học viên luyện nói trong môi trường thoải mái, không bị đánh giá.",
-    "AI đóng vai trò như một trợ lý hội thoại, cung cấp từ vựng, ví dụ, phản hồi phát âm tức thì và lộ trình học tập thích ứng cho nhiều tình huống: công việc, du lịch, hay cuộc sống hàng ngày.",
-    "Ngay từ bài kiểm tra nói ban đầu, hệ thống đánh giá trình độ và xây dựng lộ trình phù hợp.",
-    "Học viên mới sẽ nhận gợi ý câu đầy đủ, trong khi học viên nâng cao chỉ nhận cụm từ chính.",
-    "AI theo dõi tiến trình, tinh chỉnh bài học và hỗ trợ cải thiện phát âm theo thời gian thực.",
-    "Ứng dụng phục vụ Học viên – truy cập bài tập cá nhân hóa, theo dõi tiến độ.",
-    "Và Quản trị viên – quản lý tài khoản, kiểm duyệt nội dung, xử lý thanh toán và theo dõi hiệu suất.",
-  ];
-
-  return (
-    <div className="home-wrap">
-      {/* HEADER */}
-      <header className="header">
-        <img src={logo} alt="Logo" className="header-logo" onClick={() => navigate("/")} />
-        <nav className="header-nav">
-          <a href="#features">Tính năng</a>
-          <a href="#packages">Gói học</a>
-          <a href="#register">Đăng ký</a>
-          <a href="#contact">Liên hệ</a>
-          <button className="btn btn-primary" onClick={() => navigate("/login")}>
-            Đăng nhập
-          </button>
-        </nav>
-      </header>
-
-      {/* HERO */}
-      <section className="hero">
-        <h1 className="hero-title">Nền tảng luyện nói tiếng Anh với AI</h1>
-        <p className="hero-subtitle">Tự tin luyện nói từ cơ bản đến nâng cao với giảng viên hàng đầu.</p>
-        <div className="hero-cta">
-          <button className="btn btn-outline" onClick={() => document.getElementById("packages").scrollIntoView({ behavior: "smooth" })}>
-            Xem gói học
-          </button>
-          <button className="btn btn-primary" onClick={() => document.getElementById("register").scrollIntoView({ behavior: "smooth" })}>
-            Đăng ký ngay
-          </button>
+    finally {sending.current=false;setBusy(false);}
+  }
+  return <div className="home-refresh">
+    <header className="public-header"><Link to="/" aria-label="AESP home"><Brand /></Link>
+      <nav aria-label="Main navigation"><a href="#practice"><UiText text="Features" /></a><a href="#packages"><UiText text="Learning packages" /></a><TranslationToggle /><Link to="/login" className="btn btn-primary"><UiText text="Sign in" /><FiArrowUpRight aria-hidden="true" /></Link></nav>
+    </header>
+    <main>
+      <section className="public-hero">
+        <div><p className="public-eyebrow"><UiText text="Everyday English" /></p><h1><UiText text="Make English part of your day." /></h1>
+          <p className="public-intro"><UiText text="A few minutes to speak, tell a story and try a new conversation." /></p>
+          <div className="public-actions"><Link to="/login" className="btn btn-primary"><UiText text="Get started" /><FiArrowUpRight aria-hidden="true" /></Link><a href="#practice"><UiText text="Explore practice" /></a></div>
+          <div className="public-note"><FiCheck aria-hidden="true" /><UiText text="Practice at your own pace." /></div>
+        </div>
+        <div className="public-scene" aria-label="Conversation preview">
+          <div className="preview-caption"><span className="preview-dot" /><UiText text="A little practice. A more confident you." /></div>
+          <div className="preview-bubble preview-bubble-peer"><UiText text={"How was your day?"} /></div>
+          <div className="preview-bubble preview-bubble-own"><UiText text={"I tried something new today."} /></div>
+          <div className="preview-bubble preview-bubble-peer"><UiText text={"I'd love to hear about it."} /></div>
+          <div className="preview-mic"><FiMic aria-hidden="true" /><span><UiText text="Find your words." /></span></div>
         </div>
       </section>
-
-      {/* FEATURES */}
-      <section id="features" className="features">
-        <div className="feature" onClick={() => document.getElementById("mentor-intro").scrollIntoView({ behavior: "smooth" })}>
-          <FaChalkboardTeacher size={32} />
-          <p>Giảng viên</p>
-        </div>
-        <div className="feature" onClick={() => document.getElementById("packages").scrollIntoView({ behavior: "smooth" })}>
-          <FaBookOpen size={32} />
-          <p>Khoá học</p>
-        </div>
-        <div className="feature" onClick={() => document.getElementById("certificate").scrollIntoView({ behavior: "smooth" })}>
-          <FaAward size={32} />
-          <p>Chứng chỉ</p>
-        </div>
-        <div className="feature" onClick={() => navigate("/login")}>
-          <FaLaptopCode size={32} />
-          <p>Học online</p>
-        </div>
+      <section id="practice" className="public-section"><div className="public-section-heading"><p className="public-eyebrow"><UiText text="Small steps. Every day." /></p><h2><UiText text="Your space to keep learning." /></h2></div>
+        <div className="public-features">{[
+          {icon:FiMic,title:'Speaking',description:'Listen, try and find your own words.'},
+          {icon:FiMessageCircle,title:'Tell me your story',description:'Share an idea or talk about your day.'},
+          {icon:FiCompass,title:'Scenario Studio',description:'Meet a character, ask a question and choose your next step.'}
+        ].map(({icon:Icon,title,description})=><article key={title}><span className="public-feature-icon"><Icon aria-hidden="true" /></span><h3><UiText text={title} /></h3><p><UiText text={description} /></p><Link to="/login" aria-label={`Open ${title}`}><FiArrowUpRight aria-hidden="true" /></Link></article>)}</div>
       </section>
-
-      {/* INTRODUCTION */}
-      <section className="introduction" id="about">
-        <h2>Về AESP</h2>
-        {introSentences.map((text, i) => (
-          <p
-            key={i}
-            ref={(el) => (introRef.current[i] = el)}
-            className={visibleSentences.includes(i) ? "visible" : ""}
-          >
-            {text}
-          </p>
-        ))}
+      <section id="packages" className="public-section"><div className="public-section-heading"><p className="public-eyebrow"><UiText text="Learning packages" /></p><h2><UiText text="Choose your next step." /></h2></div>
+        {loading?<p role="status"><UiText text="Loading packages..." /></p>:failed?<div role="alert"><UiText text="Learning packages could not be loaded." /> <button className="btn" onClick={()=>setAttempt(n=>n+1)}><UiText text="Try again" /></button></div>:packages.length===0?<p><UiText text="No learning packages available yet." /></p>:<div className="public-package-grid">{packages.map(pkg=><article key={pkg.id} className="public-package"><h3>{pkg.name}</h3><p className="public-package-price">{Number.isFinite(Number(pkg.price))&&pkg.price!==null?new Intl.NumberFormat('en-GB',{style:'currency',currency:'VND',maximumFractionDigits:0}).format(Number(pkg.price)):<UiText text="Contact your administrator" />}</p><p>{Number.isSafeInteger(pkg.duration_days)&&pkg.duration_days>0?<>{pkg.duration_days} <UiText text="days" /></>:<UiText text="See package details" />}</p><p>{pkg.description}</p><a href="#access" className="btn btn-ghost"><UiText text="Request access" /><FiArrowUpRight aria-hidden="true" /></a></article>)}</div>}
       </section>
-
-      {/* CERTIFICATE */}
-      <section id="certificate" ref={(el) => (sectionRefs.current["certificate"] = el)} className={`certificate ${visibleSections["certificate"] ? "visible" : ""}`}>
-        <h2>Chứng chỉ được cấp phép</h2>
-        <p>
-          Sau khi hoàn thành các cột mốc, học viên sẽ nhận được chứng chỉ xác nhận năng lực giao tiếp tiếng Anh,
-          được cấp bởi hệ thống AESP và đối tác kiểm định chất lượng.
-        </p>
+      <section id="access" className="public-access"><div><p className="public-eyebrow"><UiText text={"AESP"} /></p><h2><UiText text="Ready when you are." /></h2><p><UiText text="Accounts are provided by your administrator. Contact them to get started." /></p></div>
+        <form onSubmit={requestAccess}><label><UiText text="Full name" /><input name="name" required maxLength={100} autoComplete="name" /></label><label><UiText text={"Email"} /><input name="email" type="email" required maxLength={200} autoComplete="email" /></label><label><UiText text="Phone number" /><input name="phone" type="tel" required maxLength={20} autoComplete="tel" /></label><button disabled={busy||uncertain} className="btn btn-primary"><UiText text={busy?'Sending...':'Send request'} /></button>{status&&<p role="status"><UiText text={status} /></p>}</form>
       </section>
-
-      {/* PACKAGES */}
-<section
-  id="packages"
-  ref={(el) => (sectionRefs.current["packages"] = el)}
-  className={`packages ${visibleSections["packages"] ? "visible" : ""}`}
->
-  <div className="packages-header">
-    <h2>Các gói học</h2>
-    <p className="packages-desc">
-      Truy cập toàn bộ khóa học và tài liệu học tập. <br />
-      Sử dụng không giới hạn tất cả tính năng luyện nói với AI. <br />
-      Nhận phản hồi phát âm tức thì và lộ trình học tập cá nhân hóa. <br />
-      Có sự hỗ trợ từ giảng viên hướng dẫn tận tình, chuyên nghiệp.
-    </p>
-  </div>
-  <div className="package-list">
-    {packages.length > 0 ? (
-      packages.map((pkg) => (
-        <div key={pkg.id} className="card package-card">
-          <h3>{pkg.name}</h3>
-          <div className="price-block">
-            {pkg.original_price && (
-              <div className="original">
-                {pkg.original_price.toLocaleString()} đ
-              </div>
-            )}
-            <div className="current">
-              {pkg.price?.toLocaleString() || "0"} đ / {pkg.duration_days || pkg.durationMonths || 30} Ngày
-            </div>
-          </div>
-          <button
-            className="btn btn-primary"
-            onClick={() =>
-              document.getElementById("register").scrollIntoView({ behavior: "smooth" })
-            }
-          >
-            Đăng ký ngay để nhận ưu đãi
-          </button>
-        </div>
-      ))
-    ) : (
-      <div style={{ gridColumn: "1 / -1", textAlign: "center", padding: "40px", color: "var(--text-light)" }}>
-        <p>Đang tải gói học...</p>
-      </div>
-    )}
-  </div>
-</section>
-      {/* MENTOR INTRO */}
-      <section
-        id="mentor-intro"
-        ref={(el) => (sectionRefs.current["mentor-intro"] = el)}
-        className={`mentor-intro ${visibleSections["mentor-intro"] ? "visible" : ""}`}
-      >
-        <div className="mentor-intro-content">
-          <img src={mentorImage} alt="Giảng viên hỗ trợ" />
-          <div>
-            <h2>Giảng viên hỗ trợ</h2>
-            <p>
-              Các giáo viên hỗ trợ có chuyên môn sẽ giúp bạn duy trì động lực học và tiến bộ đúng hướng.
-              Bạn sẽ không bao giờ cô đơn trên hành trình chinh phục tiếng Anh tại AESP.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* REGISTER FORM */}
-      <section
-        id="register"
-        ref={(el) => (sectionRefs.current["register"] = el)}
-        className={`register-form ${visibleSections["register"] ? "visible" : ""}`}
-      >
-        <h2>Đăng ký nhanh</h2>
-        <form onSubmit={handleRegister}>
-          <input type="text" name="name" placeholder="Họ tên" required />
-          <input type="email" name="email" placeholder="Email" required />
-          <input type="tel" name="phone" placeholder="Số điện thoại" required />
-          <button type="submit" className="btn btn-primary">
-            Gửi đăng ký
-          </button>
-        </form>
-      </section>
-
-      {/* PARTNERS */}
-      <section
-        id="partners"
-        ref={(el) => (sectionRefs.current["partners"] = el)}
-        className={`partners ${visibleSections["partners"] ? "visible" : ""}`}
-      >
-        <h2>Đối tác tin cậy</h2>
-        <div className="partner-list">
-          {samplePartners.map((p) => (
-            <div key={p.id} className="partner-card">
-              <img src={p.logo} alt={p.name} />
-              <p>{p.name}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* FOOTER */}
-      <footer id="contact" className="footer">
-        <div className="footer-top">
-          <div className="footer-left">
-            <h4>Chấp nhận thanh toán</h4>
-            <div className="payment-list">
-              <img src={atmLogo} alt="ATM" />
-              <img src={paypalLogo} alt="PayPal" />
-              <img src={momoLogo} alt="Momo" />
-              <img src={zalopayLogo} alt="ZaloPay" />
-            </div>
-          </div>
-          <div className="footer-right">
-            <h4>Công ty TNHH AESP</h4>
-            <p>Địa chỉ trụ sở: 70 Đ. Tô Ký, Tân Chánh Hiệp, Quận 12, TP. Hồ Chí Minh</p>
-            <p>Số điện thoại hỗ trợ: 0123456789</p>
-            <p>Email hỗ trợ: admin@gmail.com</p>
-          </div>
-        </div>
-        <div className="footer-bottom">
-          © 2025 AESP - All rights reserved
-        </div>
-      </footer>
-    </div>
-  );
+    </main>
+    <footer className="public-footer"><Brand /><span>AI Education Support Platform</span><Link to="/login"><UiText text="Back to learning" /> <FiArrowUpRight aria-hidden="true" /></Link></footer>
+  </div>;
 }

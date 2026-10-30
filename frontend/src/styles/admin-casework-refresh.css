@@ -1,0 +1,133 @@
+/* Scoped casework surfaces: Reports and Support share the Admin workspace. */
+body .theme-admin .admin-reports-page.report-page {
+  padding: 0;
+  background: transparent;
+  min-height: 0;
+  font-family: inherit;
+  color: #253d49;
+}
+.admin-workspace-page .casework-surface {
+  padding: 24px;
+  margin: 0 0 24px;
+  border: 1px solid #e3e9ed;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 3px 14px #243b4804;
+  min-width: 0;
+}
+.admin-workspace-page .casework-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 22px;
+}
+.admin-workspace-page .casework-section-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 650;
+  padding: 0;
+  margin: 0 0 5px;
+  border: 0;
+  color: #243e4b;
+}
+.admin-workspace-page .casework-section-heading h2 svg { width: 17px; height: 17px; color: #66858e; }
+.admin-workspace-page .casework-section-heading p { margin: 0; color: #83919a; font-size: 12px; line-height: 1.6; }
+.admin-workspace-page .casework-count { display: grid; place-items: center; min-width: 30px; min-height: 27px; padding: 2px 8px; background: #eff4f6; border: 1px solid #e4ebee; border-radius: 8px; color: #5c7786; font-size: 12px; font-variant-numeric: tabular-nums; }
+.admin-workspace-page .casework-toolbar { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; margin-bottom: 20px; }
+.admin-workspace-page .casework-toolbar > select { width: 180px; }
+.admin-workspace-page .casework-search { display: flex; flex: 1 1 260px; align-items: center; gap: 9px; min-width: 180px; padding-left: 13px; border: 1px solid #dfe7eb; border-radius: 10px; background: #fbfcfd; color: #8a9ba4; }
+.admin-workspace-page .casework-search svg { width: 16px; height: 16px; flex-shrink: 0; }
+body .theme-admin .admin-workspace-page .casework-search input { width: 100%; min-width: 0; border: 0; background: transparent; box-shadow: none; padding: 11px 12px 11px 0; outline-offset: 0; }
+.admin-workspace-page .casework-search:focus-within { border-color: #8eb7b3; }
+.admin-workspace-page .casework-filter-field { display: flex; flex-direction: column; gap: 6px; color: #7d8c96; font-size: 11px; flex: 0 1 240px; }
+.admin-workspace-page .casework-progress-toolbar { align-items: flex-end; }
+.admin-workspace-page .casework-report-period { display: flex; align-items: flex-end; gap: 14px; flex-wrap: wrap; padding: 16px; border: 1px solid #e9edf0; border-radius: 11px; background: #fafcfd; margin-bottom: 17px; }
+.admin-workspace-page .casework-report-period label { display: flex; flex-direction: column; gap: 7px; color: #7c8d97; font-size: 11px; flex: 0 1 170px; }
+.admin-workspace-page .casework-period-total { margin-left: auto; padding: 0 6px 2px 16px; border-left: 1px solid #e2e9ed; display: flex; flex-direction: column; gap: 3px; }
+.admin-workspace-page .casework-period-total strong { font-size: 23px; color: #365d6d; line-height: 1.3; font-weight: 650; font-variant-numeric: tabular-nums; }
+.admin-workspace-page .casework-period-total span { font-size: 10px; color: #8b99a1; }
+.admin-workspace-page .casework-report-status { justify-content: space-between; }
+.admin-workspace-page .casework-report-status label { display: flex; gap: 10px; align-items: center; }
+.admin-workspace-page .casework-report-status select { min-width: 160px; }
+.admin-workspace-page .casework-detail-label { font-size: 11px; font-weight: 600; color: #82929b; }
+.admin-workspace-page .casework-muted { color: #8b99a1; font-size: 12px; }
+.admin-workspace-page .casework-alert { background: #fff6f3; border: 1px solid #f2ded4; color: #9f6350; padding: 11px 14px; border-radius: 9px; font-size: 12px; }
+.admin-workspace-page .casework-contact-name { display: block; font-weight: 600; color: #314c59; margin-bottom: 5px; }
+.admin-workspace-page .casework-contact-line { display: block; font-size: 11px; line-height: 1.7; color: #84949d; overflow-wrap: anywhere; }
+.admin-workspace-page .casework-reference { font-size: 10px; color: #9aa8af; font-variant-numeric: tabular-nums; }
+.admin-workspace-page .casework-request-note { margin: 6px 0 0; line-height: 1.7; max-width: 330px; white-space: pre-wrap; overflow-wrap: anywhere; color: #657b87; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.admin-workspace-page .casework-date { white-space: nowrap; font-size: 11px; color: #718692; font-variant-numeric: tabular-nums; }
+.admin-workspace-page .casework-date small { display: block; color: #a0aab0; font-size: 10px; margin-top: 5px; }
+.admin-workspace-page .casework-row-actions { display: flex; gap: 6px; align-items: center; justify-content: flex-end; flex-wrap: wrap; }
+.admin-workspace-page .casework-row-actions button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; }
+.admin-workspace-page .casework-row-actions svg { width: 14px; height: 14px; flex-shrink: 0; }
+.casework-status { display: inline-flex; width: fit-content; align-items: center; gap: 5px; padding: 5px 9px; font-size: 10px; font-weight: 600; border-radius: 6px; white-space: nowrap; text-transform: capitalize; color: #8c7653; background: #faf4e6; }
+.casework-status.is-pending { background: #faf4e6; color: #9b7d45; }
+.casework-status.is-resolved { background: #eaf5ee; color: #538168; }
+.casework-status.is-dismissed { background: #f1f3f6; color: #83909b; }
+.admin-workspace-page .casework-empty { padding: 35px 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; color: #92a2ab; text-align: center; font-size: 12px; }
+.admin-workspace-page .casework-empty svg { width: 24px; height: 24px; color: #aabac1; }
+.admin-workspace-page .casework-empty p { margin: 0; }
+.admin-reports-page .report-cases-table { min-width: 850px; table-layout: fixed; }
+.admin-reports-page .report-cases-table th:nth-child(1) { width: 19%; }
+.admin-reports-page .report-cases-table th:nth-child(2) { width: 30%; }
+.admin-reports-page .report-cases-table th:nth-child(3) { width: 16%; }
+.admin-reports-page .report-cases-table th:nth-child(4) { width: 15%; }
+.admin-reports-page .report-cases-table th:nth-child(5) { width: 20%; }
+.admin-reports-page .table td { vertical-align: top; }
+.admin-reports-page .sender-target { display: table-cell; }
+.admin-reports-page .sender-target strong { display: block; margin-bottom: 4px; font-weight: 500; color: #96a4ad; font-size: 10px; }
+body .theme-admin .admin-reports-page .casework-person-link { background: none; border: 0; padding: 0; border-radius: 0; color: #426a7c; cursor: pointer; font: inherit; font-weight: 550; text-align: left; min-height: 0; }
+.admin-reports-page .casework-person-link:hover { text-decoration: underline; color: #285e73; }
+.admin-reports-page .casework-person-link:disabled { cursor: default; color: #768b98; text-decoration: none; }
+.admin-reports-page .casework-person-link small { display: block; font-size: 10px; color: #9aa7ae; margin-top: 3px; font-weight: 400; }
+.admin-reports-page .casework-report-content { color: #5c7380; line-height: 1.75; overflow-wrap: anywhere; }
+.admin-reports-page .casework-report-content img, .admin-reports-page .casework-report-content video { max-width: 100%; }
+.admin-reports-page .casework-report-reply { color: #7e9099; font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.admin-reports-page .placeholder { color: #a7b2b8; font-size: 11px; }
+body .theme-admin .admin-reports-page .casework-status-select { padding: 7px 9px; min-height: 33px; border-radius: 7px; color: #8f7a4d; border: 1px solid #efe6d0; background: #fbf7ed; font-size: 11px; }
+body .theme-admin .admin-reports-page .casework-status-select.is-resolved { color: #4c8265; border-color: #dcebe1; background: #f0f8f3; }
+body .theme-admin .admin-reports-page .casework-status-select.is-dismissed { color: #7d8c96; border-color: #e3e9ed; background: #f5f7f8; }
+.admin-support-page .support-inbox-table { min-width: 800px; }
+.admin-support-page .support-inbox-table td { vertical-align: top; }
+.admin-support-page .support-inbox-table th:first-child { width: 22%; }
+.admin-support-page .support-inbox-table th:nth-child(2) { width: 32%; }
+.casework-dialog-overlay { position: fixed; inset: 0; z-index: 1100; background: #152b3f66; backdrop-filter: blur(3px); display: flex; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
+.casework-dialog { box-sizing: border-box; width: 560px; max-width: 100%; max-height: calc(100dvh - 48px); overflow-y: auto; background: #fff; border: 1px solid #e4ebee; border-radius: 17px; padding: 27px; box-shadow: 0 24px 90px #152c3a24; color: #405a68; }
+.casework-dialog--wide { width: 1160px; }
+.casework-dialog-heading { font-size: 19px; font-weight: 650; letter-spacing: -.3px; margin: 0 0 22px; color: #2c4857; }
+.casework-dialog label.label { display: block; font-size: 12px; color: #768c97; margin: 20px 0 9px; }
+.casework-dialog textarea.input { box-sizing: border-box; width: 100%; min-height: 145px; line-height: 1.7; background: #fbfcfd; border: 1px solid #dfe7eb; border-radius: 10px; padding: 13px; }
+.casework-dialog .btn-submit { padding: 10px 16px; border: 1px solid #d3e2e8; border-radius: 9px; color: #fff; background: #3e677b; font-size: 12px; font-weight: 600; cursor: pointer; }
+.casework-dialog .btn-ghost, .admin-casework-modal .btn-ghost { border: 1px solid #e1e8ec; background: #fff; color: #718794; padding: 9px 14px; border-radius: 9px; font-size: 12px; cursor: pointer; }
+.casework-dialog-actions { display: flex; justify-content: flex-end; align-items: center; gap: 9px; margin-top: 22px; padding-top: 18px; border-top: 1px solid #edf1f3; }
+body .casework-dialog textarea.input{display:block;width:100%;box-sizing:border-box;min-height:138px;height:auto;resize:vertical;padding:12px;line-height:1.7;font-size:13px;color:#526c78;background:#fbfcfd;border:1px solid #dfe7eb;border-radius:9px}
+.casework-note { padding: 15px; border: 1px solid #e8edf0; border-radius: 10px; background: #f8fafb; margin-top: 10px; white-space: pre-wrap; font-size: 13px; line-height: 1.8; color: #687f8b; overflow-wrap: anywhere; }
+.casework-note p { margin: 7px 0 0; }
+.admin-casework-modal.modal-card { width: 570px; max-width: calc(100vw - 32px); padding: 0; border-radius: 17px; border: 1px solid #e3eaee; overflow: hidden; box-shadow: 0 24px 90px #152c3a24; }
+.admin-casework-modal .modal-header { padding: 21px 24px; border-bottom: 1px solid #eaf0f3; background: #fff; }
+.admin-casework-modal .modal-header h3 { color: #2e4b59; font-size: 18px; font-weight: 650; }
+.admin-casework-modal .modal-body { padding: 24px; }
+.casework-details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin: 0 0 20px; }
+.casework-details div { min-width: 0; }
+.casework-details dt { color: #92a2ab; font-size: 11px; margin-bottom: 6px; }
+.casework-details dd { margin: 0; font-size: 13px; line-height: 1.6; color: #466171; overflow-wrap: anywhere; }
+.admin-casework-modal .casework-detail-label { color: #8a9ba5; font-size: 11px; font-weight: 600; }
+@media (max-width: 760px) {
+  .admin-workspace-page .casework-surface { padding: 17px; border-radius: 13px; }
+  .admin-workspace-page .casework-section-heading { margin-bottom: 17px; }
+  .admin-workspace-page .casework-section-heading h2 { font-size: 15px; }
+  .admin-workspace-page .casework-report-period { padding: 12px; gap: 11px; }
+  .admin-workspace-page .casework-report-period label { flex: 1 1 120px; }
+  .admin-workspace-page .casework-period-total { flex-direction: row; width: 100%; align-items: baseline; gap: 9px; border-left: 0; border-top: 1px solid #e4ebef; margin: 0; padding: 12px 0 0; }
+  .admin-workspace-page .casework-toolbar > select { width: 100%; }
+  .admin-workspace-page .casework-filter-field { flex: 1 1 100%; }
+  .casework-dialog-overlay { padding: 12px; }
+  .casework-dialog { padding: 20px; max-height: calc(100dvh - 24px); border-radius: 13px; }
+  .casework-details { gap: 16px; }
+  .admin-casework-modal .modal-body { padding: 20px; }
+}

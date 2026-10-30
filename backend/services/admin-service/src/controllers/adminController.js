@@ -1,17 +1,14 @@
+import { createAccount, setAccountStatus, assignMentor, listAssignableMentors, resetManagedPassword } from "../services/accountAdministration.js";
 ﻿// Admin Service - Controller
 import bcrypt from "bcryptjs";
 import pool from "../config/db.js";
 // TODO: Replace with API calls to User Service
 import {
-  findUserByIdentifier,
-  createUserInDb,
   updateUserInDb,
-  deleteUserInDb,
-  toggleUserStatusInDb
+  deleteUserInDb
 } from "../models/userModel.js";
 // TODO: Replace with API calls to Learner Service
 // import * as learnerService from "../services/learnerService.js";
-import * as learnerServiceClient from "../utils/learnerServiceClient.js";
 
 // Lấy danh sách user (JOIN learners + view + mentor)
 export async function listUsers(req, res) {
@@ -22,13 +19,18 @@ export async function listUsers(req, res) {
     l.id AS learner_id,
     lp.package_name,
     lp.status AS package_status,
-    lp.expiry_date,
-    lp.days_left,
+    (lp.status='active' AND lp.effective_expiry>NOW()) AS package_is_active,
+    lp.effective_expiry AS expiry_date,
+    CASE WHEN lp.purchase_id IS NULL THEN NULL ELSE GREATEST(0,CEIL(EXTRACT(EPOCH FROM (lp.effective_expiry-NOW()))/86400))::int END AS days_left,
     mu.id AS mentor_id,
     mu.name AS mentor_name
   FROM users u
   LEFT JOIN learners l ON l.user_id = u.id
-  LEFT JOIN learner_package_view lp ON lp.learner_id = l.id
+  LEFT JOIN LATERAL (
+    SELECT p.*,COALESCE(p.expiry_date,p.created_at+COALESCE(p.duration_days,0)*INTERVAL '1 day')+COALESCE(p.extra_days,0)*INTERVAL '1 day' AS effective_expiry
+    FROM learner_package_view p WHERE p.learner_id=l.id
+    ORDER BY (p.status='active' AND COALESCE(p.expiry_date,p.created_at+COALESCE(p.duration_days,0)*INTERVAL '1 day')+COALESCE(p.extra_days,0)*INTERVAL '1 day'>NOW()) DESC,p.created_at DESC,p.purchase_id DESC LIMIT 1
+  ) lp ON TRUE
   LEFT JOIN mentors m ON l.mentor_id = m.id
   LEFT JOIN users mu ON m.user_id = mu.id
   ORDER BY u.id DESC
@@ -66,23 +68,21 @@ export async function getUser(req, res) {
     l.id AS learner_id,
     lp.package_name,
     lp.status AS package_status,
-    lp.expiry_date,
-    lp.days_left,
+    (lp.status='active' AND lp.effective_expiry>NOW()) AS package_is_active,
+    lp.effective_expiry AS expiry_date,
+    CASE WHEN lp.purchase_id IS NULL THEN NULL ELSE GREATEST(0,CEIL(EXTRACT(EPOCH FROM (lp.effective_expiry-NOW()))/86400))::int END AS days_left,
     mu.id AS mentor_id,
     mu.name AS mentor_name,
     m.id AS mentor_mentor_id,
     m.rating AS mentor_rating,
-    COALESCE(
-      (SELECT AVG(average_score) 
-       FROM practice_history 
-       WHERE learner_id = l.id 
-         AND practice_type = 'speaking_practice' 
-         AND average_score IS NOT NULL),
-      0
-    ) AS learner_average_score
+    NULL::numeric AS learner_average_score
   FROM users u
   LEFT JOIN learners l ON l.user_id = u.id
-  LEFT JOIN learner_package_view lp ON lp.learner_id = l.id
+  LEFT JOIN LATERAL (
+    SELECT p.*,COALESCE(p.expiry_date,p.created_at+COALESCE(p.duration_days,0)*INTERVAL '1 day')+COALESCE(p.extra_days,0)*INTERVAL '1 day' AS effective_expiry
+    FROM learner_package_view p WHERE p.learner_id=l.id
+    ORDER BY (p.status='active' AND COALESCE(p.expiry_date,p.created_at+COALESCE(p.duration_days,0)*INTERVAL '1 day')+COALESCE(p.extra_days,0)*INTERVAL '1 day'>NOW()) DESC,p.created_at DESC,p.purchase_id DESC LIMIT 1
+  ) lp ON TRUE
   LEFT JOIN mentors m ON l.mentor_id = m.id
   LEFT JOIN users mu ON m.user_id = mu.id
   WHERE u.id = $1
@@ -91,12 +91,14 @@ export async function getUser(req, res) {
     // Nếu là mentor, lấy thêm rating
     if (result.rows.length > 0 && result.rows[0].role?.toUpperCase() === "MENTOR") {
       const mentorRes = await pool.query(`
-        SELECT m.rating
+        SELECT m.rating,m.bio,m.id
         FROM mentors m
         WHERE m.user_id = $1
       `, [id]);
       if (mentorRes.rows.length > 0) {
         result.rows[0].mentor_rating = mentorRes.rows[0].rating;
+        result.rows[0].mentor_bio = mentorRes.rows[0].bio;
+        result.rows[0].mentor_mentor_id = mentorRes.rows[0].id;
       }
     }
 
@@ -124,92 +126,24 @@ export async function getUser(req, res) {
 }
 
 // Tạo user mới
-export async function createUser(req, res) {
+export async function createUser(req,res) {
   try {
-    const { name, email, phone, dob, role, password, packageId } = req.body;
-
-    if (!name || !email || !password || !role) {
-      return res.status(400).json({ success: false, message: "Thiếu dữ liệu bắt buộc" });
-    }
-    if (role.toLowerCase() === "admin") {
-      return res.status(403).json({ success: false, message: "Không được tạo admin từ giao diện" });
-    }
-
-    if (email) {
-      const existingEmail = await findUserByIdentifier(email);
-      if (existingEmail?.email === email) {
-        return res.status(409).json({ success: false, message: "Email đã tồn tại" });
-      }
-    }
-    if (phone) {
-      const existingPhone = await findUserByIdentifier(phone);
-      if (existingPhone?.phone === phone) {
-        return res.status(409).json({ success: false, message: "Số điện thoại đã tồn tại" });
-      }
-    }
-
-    const hashed = await bcrypt.hash(password, 10);
-
-    const newUser = await createUserInDb({
-      name,
-      email,
-      phone: phone || null,
-      dob: dob || null,
-      role: role.toLowerCase(),
-      password: hashed,
-      status: "active"
-    });
-
-    let learnerId = null;
-
-    if (role.toLowerCase() === "learner") {
-      const lrRes = await pool.query(
-        `INSERT INTO learners (user_id, start_date) VALUES ($1, NOW()) RETURNING id`,
-        [newUser.id]
-      );
-      learnerId = lrRes.rows[0].id;
-
-      if (packageId) {
-        await pool.query(
-          `INSERT INTO purchases (learner_id, package_id, status, created_at, extra_days)
-           VALUES ($1,$2,'active',NOW(),0)`,
-          [learnerId, packageId]
-        );
-      }
-    }
-
-    const { password: _, ...safe } = newUser;
-    return res.status(201).json({ success: true, user: safe, learnerId });
-  } catch (err) {
-    if (err.code === "23505") {
-      return res.status(409).json({ success: false, message: "Email hoặc SĐT đã tồn tại" });
-    }
-    console.error("createUser error - adminController.js:133", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    if (typeof req.body.password !== 'string' || req.body.password.length < 8) return res.status(400).json({success:false,message:'Mật khẩu cần ít nhất 8 ký tự'});
+    const hash = await bcrypt.hash(req.body.password,10);
+    return res.status(201).json({success:true,...await createAccount(req.body,hash)});
+  } catch(err) {
+    return res.status(err.code === '23505' ? 409 : err.status || 500).json({success:false,message:err.code==='23505'?'Email hoặc SĐT đã tồn tại':err.status?err.message:'Không thể tạo tài khoản'});
   }
 }
 
-// Cập nhật user (chỉ đổi mật khẩu learner)
-export async function updateUser(req, res) {
-  try {
-    const { id } = req.params;
-    const { password } = req.body;
-
-    if (!password) {
-      return res.status(400).json({ success: false, message: "Chỉ được phép thay đổi mật khẩu" });
-    }
-
-    const hashed = await bcrypt.hash(password, 10);
-
-    const updated = await updateUserInDb(id, { password: hashed });
-    if (!updated) return res.status(404).json({ success: false, message: "Not found" });
-
-    const { password: _, ...safe } = updated;
-    return res.json({ success: true, user: safe });
-  } catch (err) {
-    console.error("updateUser error - adminController.js:156", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
+// Đặt lại mật khẩu tài khoản được quản lý và thu hồi phiên cũ.
+export async function updateUser(req,res){
+ try{
+  const password=req.body.password;
+  if(typeof password!=='string'||password.length<8)return res.status(400).json({success:false,message:'Mật khẩu cần ít nhất 8 ký tự'});
+  const hash=await bcrypt.hash(password,10);
+  return res.json({success:true,user:await resetManagedPassword(req.params.id,hash)});
+ }catch(error){return res.status(error.status||500).json({success:false,message:error.status?error.message:'Không thể đặt lại mật khẩu'});}
 }
 
 // Upload avatar
@@ -249,196 +183,27 @@ export async function uploadAvatar(req, res) {
 // Xóa user
 export async function deleteUser(req, res) {
   try {
+    const current=await pool.query('SELECT role FROM users WHERE id=$1',[req.params.id]);
+    if(current.rows[0]?.role?.toLowerCase()==='admin')return res.status(403).json({success:false,message:'Không xóa tài khoản Admin từ giao diện'});
     const deleted = await deleteUserInDb(req.params.id);
     if (!deleted) return res.status(404).json({ success: false, message: "Not found" });
     return res.json({ success: true });
   } catch (err) {
     console.error("deleteUser error - adminController.js:168", err);
-    return res.status(500).json({ success: false, message: "Server error" });
+    return res.status(err.code==='23503'?409:500).json({ success: false, message: err.code==='23503'?'Tài khoản có lịch sử học tập, hãy dùng khóa tài khoản':'Server error' });
   }
 }
 
 // Toggle trạng thái (active/banned)
-export async function toggleUserStatus(req, res) {
+export async function toggleUserStatus(req,res) {
   try {
-    const { id } = req.params;
-    const { status, ban_reason, unban_reason } = req.body;
-    
-    if (!status || (status !== 'active' && status !== 'banned')) {
-      return res.status(400).json({ success: false, message: "Status phải là 'active' hoặc 'banned'" });
-    }
-
-    // Lấy user hiện tại để check status cũ
-    const currentUser = await pool.query("SELECT status FROM users WHERE id = $1", [id]);
-    if (currentUser.rows.length === 0) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
-    const oldStatus = currentUser.rows[0].status;
-
-    // Nếu ban thì phải có lý do
-    if (status === 'banned' && !ban_reason?.trim()) {
-      return res.status(400).json({ success: false, message: "Vui lòng nhập lý do ban" });
-    }
-
-    // Nếu unban (từ banned về active) thì phải có lý do
-    if (status === 'active' && oldStatus === 'banned' && !unban_reason?.trim()) {
-      return res.status(400).json({ success: false, message: "Vui lòng nhập lý do mở ban" });
-    }
-    
-    // Đổi trạng thái user
-    const updated = await toggleUserStatusInDb(
-      id, 
-      status, 
-      status === 'banned' ? ban_reason.trim() : null,
-      status === 'active' ? unban_reason.trim() : null
-    );
-    if (!updated) return res.status(404).json({ success: false, message: "Not found" });
-
-    // Lưu vào ban_history
-    const adminId = req.user?.id;
-    await pool.query(
-      `INSERT INTO ban_history (user_id, action, reason, admin_id)
-       VALUES ($1, $2, $3, $4)`,
-      [
-        id,
-        status === 'banned' ? 'banned' : 'unbanned',
-        status === 'banned' ? ban_reason.trim() : unban_reason.trim(),
-        adminId || null
-      ]
-    );
-
-    // Nếu là learner thì cập nhật purchases
-    if (updated.role === "learner") {
-      if (updated.status === "banned") {
-        // Khi Ban → chuyển gói học sang paused
-        await pool.query(
-          `UPDATE purchases 
-           SET status = 'paused'
-           WHERE learner_id = (
-             SELECT id FROM learners WHERE user_id = $1
-           ) AND status = 'active'`,
-          [updated.id]
-        );
-      } else if (updated.status === "active") {
-        // Khi Unban → khôi phục gói học từ paused về active
-        await pool.query(
-          `UPDATE purchases 
-           SET status = 'active'
-           WHERE learner_id = (
-             SELECT id FROM learners WHERE user_id = $1
-           ) AND status = 'paused'`,
-          [updated.id]
-        );
-      }
-    }
-
-    // Nếu là mentor bị ban → giải phóng learners và chia đều
-    if (updated.role === "mentor" && updated.status === "banned") {
-      try {
-        // Lấy mentor_id từ user_id
-        const mentorRes = await pool.query(
-          "SELECT id FROM mentors WHERE user_id = $1",
-          [updated.id]
-        );
-        if (mentorRes.rows.length > 0) {
-          const mentorId = mentorRes.rows[0].id;
-          const token = req.headers.authorization;
-          const result = await learnerServiceClient.handleMentorBanned(mentorId, token);
-          console.log(`✅ Đã xử lý mentor bị ban: ${result.reassignedCount}/${result.totalLearners} learners được gán lại`);
-        }
-      } catch (err) {
-        console.error("❌ Lỗi khi xử lý mentor bị ban:", err);
-        // Không throw error để không block việc ban mentor
-      }
-    }
-
-    const { password, ...safe } = updated;
-    return res.json({ success: true, user: safe });
-  } catch (err) {
-    console.error("toggleUserStatus error - adminController.js:210", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
+    const {status,ban_reason,unban_reason}=req.body;
+    return res.json({success:true,...await setAccountStatus(req.params.id,status,status==='banned'?ban_reason:unban_reason,req.user.id)});
+  } catch(err) {return res.status(err.status || 500).json({success:false,message:err.status?err.message:'Không thể cập nhật trạng thái'});}
 }
 
-// Xóa learner khỏi mentor (ban user, set mentor_id = NULL, KHÔNG xóa lịch sử)
-export async function removeLearnerFromMentor(req, res) {
-  try {
-    const { learnerId, mentorId } = req.body;
-    if (!learnerId || !mentorId) {
-      return res.status(400).json({ success: false, message: "Thiếu learnerId hoặc mentorId" });
-    }
 
-    const token = req.headers.authorization;
-    const result = await learnerServiceClient.removeLearnerFromMentor(
-      parseInt(learnerId),
-      parseInt(mentorId),
-      token
-    );
-    return res.json({ success: true, message: "Đã xóa learner khỏi mentor và ban tạm thời" });
-  } catch (err) {
-    console.error("removeLearnerFromMentor error - adminController.js", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-}
 
-// Đổi mentor cho learner (tự động chọn mentor mới)
-export async function changeLearnerMentor(req, res) {
-  try {
-    const { learnerId } = req.body;
-    if (!learnerId) {
-      return res.status(400).json({ success: false, message: "Thiếu learnerId" });
-    }
+export async function changeLearnerMentor(req,res){try{return res.json({success:true,...await assignMentor(req.body.learnerId,req.body.newMentorId),message:'Đã cập nhật Mentor cho học viên'});}catch(error){return res.status(error.status||500).json({success:false,message:error.status?error.message:'Không thể đổi Mentor'});}}
 
-    // Lấy mentor cũ
-    const learnerRes = await pool.query(
-      "SELECT mentor_id FROM learners WHERE id=$1",
-      [parseInt(learnerId)]
-    );
-    if (!learnerRes.rows[0]) {
-      return res.status(404).json({ success: false, message: "Learner not found" });
-    }
-    const oldMentorId = learnerRes.rows[0].mentor_id;
-
-    const token = req.headers.authorization;
-    const result = await learnerServiceClient.changeMentor(
-      parseInt(learnerId),
-      oldMentorId,
-      token
-    );
-    
-    if (result.newMentorId) {
-      return res.json({ 
-        success: true, 
-        message: "Đã đổi mentor thành công",
-        newMentorId: result.newMentorId
-      });
-    } else {
-      return res.json({ 
-        success: true, 
-        message: "Đã xóa mentor cũ, nhưng không có mentor nào có sẵn để gán",
-        newMentorId: null
-      });
-    }
-  } catch (err) {
-    console.error("changeLearnerMentor error - adminController.js", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-}
-
-// Lấy danh sách mentors có sẵn để gán
-export async function getAvailableMentors(req, res) {
-  try {
-    const { learnerId } = req.params;
-    if (!learnerId) {
-      return res.status(400).json({ success: false, message: "Thiếu learnerId" });
-    }
-
-    const token = req.headers.authorization;
-    const mentors = await learnerServiceClient.getAvailableMentorsForLearner(parseInt(learnerId), token);
-    return res.json({ success: true, mentors });
-  } catch (err) {
-    console.error("getAvailableMentors error - adminController.js", err);
-    return res.status(500).json({ success: false, message: "Server error" });
-  }
-}
+export async function getAvailableMentors(req,res){try{return res.json({success:true,mentors:await listAssignableMentors(req.params.learnerId)});}catch(error){return res.status(error.status||500).json({success:false,message:error.status?error.message:'Không thể tải Mentor'});}}

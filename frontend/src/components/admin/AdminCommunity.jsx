@@ -1,3 +1,6 @@
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
+
 // src/components/admin/AdminCommunity.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
@@ -6,6 +9,7 @@ import api from "../../api";
 import Modal from "../common/Modal";
 import "../../styles/admin-community.css";
 import "../../styles/communicate.css"; // Import communicate styles for media preview
+import { AuthenticatedMedia } from "../../utils/authenticatedMedia.jsx";
 
 export default function AdminCommunity() {
   const navigate = useNavigate();
@@ -33,7 +37,7 @@ export default function AdminCommunity() {
     if (isVideoUrl(url)) {
       return (
         <div className="media-preview" style={{ marginTop: "12px" }}>
-          <video 
+          <AuthenticatedMedia as="video"
             src={url} 
             controls 
             style={{ 
@@ -52,7 +56,7 @@ export default function AdminCommunity() {
     } else {
       return (
         <div className="media-preview" style={{ marginTop: "12px" }}>
-          <img 
+          <AuthenticatedMedia as="img"
             src={url} 
             alt="Post media" 
             style={{ 
@@ -97,7 +101,7 @@ export default function AdminCommunity() {
     try {
       if (action === "rejected") {
         if (!rejectionReason.trim()) {
-          alert("Vui lòng nhập lý do từ chối");
+          alert(englishText("Vui lòng nhập lý do từ chối"));
           return;
         }
         await api.post(`/community/posts/${postId}/review`, {
@@ -114,7 +118,7 @@ export default function AdminCommunity() {
       loadPosts();
     } catch (err) {
       console.error("Error reviewing post:", err);
-      alert("Lỗi: " + (err.response?.data?.message || err.message));
+      alert(englishText("Lỗi: ") + (err.response?.data?.message || err.message));
     }
   }
 
@@ -128,13 +132,13 @@ export default function AdminCommunity() {
   }
 
   async function handleDeletePost(postId) {
-    if (!confirm("Bạn có chắc muốn xóa bài đăng này?")) return;
+    if (!confirm(englishText("Bạn có chắc muốn xóa bài đăng này?"))) return;
     try {
       await api.delete(`/community/posts/${postId}`);
       loadPosts();
     } catch (err) {
       console.error("Error deleting post:", err);
-      alert("Lỗi: " + (err.response?.data?.message || err.message));
+      alert(englishText("Lỗi: ") + (err.response?.data?.message || err.message));
     }
   }
 
@@ -143,29 +147,25 @@ export default function AdminCommunity() {
   return (
     <div className="admin-community">
       <div className="admin-community-header">
-        <h2>Cư Dân AESP</h2>
+        <h2><UiText text={"Cư Dân AESP"} /></h2>
       </div>
 
       <div className="tabs">
         <button
           className={`tab ${activeTab === "pending" ? "active" : ""}`}
           onClick={() => setActiveTab("pending")}
-        >
-          Chờ duyệt ({pendingPosts.length})
-        </button>
+        >{" "}<UiText text={"Chờ duyệt"} />{" "}</button>
         <button
           className={`tab ${activeTab === "approved" ? "active" : ""}`}
           onClick={() => setActiveTab("approved")}
-        >
-          Đã duyệt ({approvedPosts.length})
-        </button>
+        >{" "}<UiText text={"Đã duyệt"} />{" "}</button>
       </div>
 
       {loading ? (
-        <div className="loading">Đang tải...</div>
+        <div className="loading"><UiText text={"Đang tải..."} /></div>
       ) : posts.length === 0 ? (
         <div className="empty-state">
-          <p>Không có bài đăng nào</p>
+          <p><UiText text={"Không có bài đăng nào"} /></p>
         </div>
       ) : (
         <div className="posts-list">
@@ -173,8 +173,7 @@ export default function AdminCommunity() {
             <div key={post.id} className={`post-review-card ${post.is_pinned ? "pinned" : ""}`}>
               {post.is_pinned && (
                 <div className="post-pin-badge">
-                  <FiBookmark /> Đã ghim
-                </div>
+                  <FiBookmark />{" "}<UiText text={"Đã ghim"} />{" "}</div>
               )}
 
               <div className="post-header">
@@ -183,15 +182,15 @@ export default function AdminCommunity() {
                     {post.author_name?.charAt(0).toUpperCase() || "U"}
                   </div>
                   <div>
-                    <div className="author-name">{post.author_name || "Người dùng"}</div>
+                    <div className="author-name">{post.author_name || <UiText text={"Người dùng"} />}</div>
                     <div className="post-meta">
-                      {post.author_role} • {new Date(post.created_at).toLocaleDateString("vi-VN", {
+                      <UiText>{post.author_role}</UiText> • <UiText>{new Date(post.created_at).toLocaleDateString('en-GB', {
                         year: "numeric",
                         month: "long",
                         day: "numeric",
                         hour: "2-digit",
                         minute: "2-digit"
-                      })}
+                      })}</UiText>
                     </div>
                   </div>
                 </div>
@@ -202,14 +201,14 @@ export default function AdminCommunity() {
               <div className="post-content">
                 {post.content && <p>{post.content}</p>}
                 {post.audio_url && (
-                  <audio controls src={post.audio_url} style={{ width: "100%", marginTop: "12px" }} />
+                  <AuthenticatedMedia as="audio" controls src={post.audio_url} style={{ width: "100%", marginTop: "12px" }} />
                 )}
-                {post.image_url && renderMedia(post.image_url)}
+                <UiText>{post.image_url && renderMedia(post.image_url)}</UiText>
               </div>
 
               {post.status === "rejected" && post.rejection_reason && (
                 <div className="rejection-reason-box">
-                  <strong>Lý do từ chối:</strong> {post.rejection_reason}
+                  <strong><UiText text={"Lý do từ chối:"} /></strong> <UiText>{post.rejection_reason}</UiText>
                 </div>
               )}
 
@@ -220,8 +219,7 @@ export default function AdminCommunity() {
                       className="btn-approve"
                       onClick={() => handleReviewPost(post.id, "approved")}
                     >
-                      <FiCheck /> Duyệt
-                    </button>
+                      <FiCheck />{" "}<UiText text={"Duyệt"} />{" "}</button>
                     <button
                       className="btn-reject"
                       onClick={() => {
@@ -229,14 +227,12 @@ export default function AdminCommunity() {
                         setShowRejectModal(true);
                       }}
                     >
-                      <FiX /> Từ chối
-                    </button>
+                      <FiX />{" "}<UiText text={"Từ chối"} />{" "}</button>
                     <button
                       className="btn-view"
                       onClick={() => setSelectedPost(post)}
                     >
-                      <FiEye /> Xem chi tiết
-                    </button>
+                      <FiEye />{" "}<UiText text={"Xem chi tiết"} />{" "}</button>
                   </>
                 ) : (
                   <>
@@ -244,20 +240,18 @@ export default function AdminCommunity() {
                       className={`btn-pin ${post.is_pinned ? "pinned" : ""}`}
                       onClick={() => handleTogglePin(post.id, post.is_pinned)}
                     >
-                      <FiBookmark /> {post.is_pinned ? "Bỏ ghim" : "Ghim"}
+                      <FiBookmark /> <UiText>{post.is_pinned ? "Bỏ ghim" : "Ghim"}</UiText>
                     </button>
                     <button
                       className="btn-view"
                       onClick={() => setSelectedPost(post)}
                     >
-                      <FiEye /> Xem chi tiết
-                    </button>
+                      <FiEye />{" "}<UiText text={"Xem chi tiết"} />{" "}</button>
                     <button
                       className="btn-delete"
                       onClick={() => handleDeletePost(post.id)}
                     >
-                      <FiTrash2 /> Xóa
-                    </button>
+                      <FiTrash2 />{" "}<UiText text={"Xóa"} />{" "}</button>
                   </>
                 )}
               </div>
@@ -274,14 +268,14 @@ export default function AdminCommunity() {
           setRejectionReason("");
           setSelectedPost(null);
         }}
-        title="Từ chối bài đăng"
+        title={englishText("Từ chối bài đăng")}
       >
         <div className="reject-form">
-          <label>Lý do từ chối:</label>
+          <label><UiText text={"Lý do từ chối:"} /></label>
           <textarea
             value={rejectionReason}
             onChange={(e) => setRejectionReason(e.target.value)}
-            placeholder="Nhập lý do từ chối bài đăng này..."
+            placeholder={englishText("Nhập lý do từ chối bài đăng này...")}
             rows={4}
           />
           <div className="reject-form-actions">
@@ -292,15 +286,11 @@ export default function AdminCommunity() {
                 setRejectionReason("");
                 setSelectedPost(null);
               }}
-            >
-              Hủy
-            </button>
+            >{" "}<UiText text={"Hủy"} />{" "}</button>
             <button
               className="btn-reject"
               onClick={() => selectedPost && handleReviewPost(selectedPost.id, "rejected")}
-            >
-              Xác nhận từ chối
-            </button>
+            >{" "}<UiText text={"Xác nhận từ chối"} />{" "}</button>
           </div>
         </div>
       </Modal>
@@ -309,7 +299,7 @@ export default function AdminCommunity() {
       <Modal
         isOpen={!!selectedPost && !showRejectModal}
         onClose={() => setSelectedPost(null)}
-        title={selectedPost ? `Chi tiết bài đăng: ${selectedPost.title || "Không có tiêu đề"}` : ""}
+        title={englishText(selectedPost ? `Chi tiết bài đăng: ${selectedPost.title || "Không có tiêu đề"}` : "")}
       >
         {selectedPost && (
           <div className="post-detail">
@@ -320,20 +310,20 @@ export default function AdminCommunity() {
               <div>
                 <div className="author-name">{selectedPost.author_name}</div>
                 <div className="post-meta">
-                  {selectedPost.author_role} • {new Date(selectedPost.created_at).toLocaleDateString("vi-VN")}
+                  <UiText>{selectedPost.author_role}</UiText> • <UiText>{new Date(selectedPost.created_at).toLocaleDateString('en-GB')}</UiText>
                 </div>
               </div>
             </div>
             <div className="post-content">
               {selectedPost.content && <p>{selectedPost.content}</p>}
               {selectedPost.audio_url && (
-                <audio controls src={selectedPost.audio_url} style={{ width: "100%" }} />
+                <AuthenticatedMedia as="audio" controls src={selectedPost.audio_url} style={{ width: "100%" }} />
               )}
-              {selectedPost.image_url && renderMedia(selectedPost.image_url)}
+              <UiText>{selectedPost.image_url && renderMedia(selectedPost.image_url)}</UiText>
             </div>
             <div className="post-stats">
-              <span>❤️ {selectedPost.likes_count || 0} lượt thích</span>
-              <span>💬 {selectedPost.comments_count || 0} bình luận</span>
+              <span>❤️ <UiText>{selectedPost.likes_count || 0}</UiText>{" "}<UiText text={"lượt thích"} /></span>
+              <span>💬 <UiText>{selectedPost.comments_count || 0}</UiText>{" "}<UiText text={"bình luận"} /></span>
             </div>
           </div>
         )}
@@ -347,7 +337,7 @@ export default function AdminCommunity() {
           className="media-fullscreen-modal"
         >
           {selectedMedia.type === 'image' ? (
-            <img 
+            <AuthenticatedMedia as="img"
               src={selectedMedia.url} 
               alt="Fullscreen" 
               style={{ 
@@ -359,7 +349,7 @@ export default function AdminCommunity() {
               }}
             />
           ) : (
-            <video 
+            <AuthenticatedMedia as="video"
               src={selectedMedia.url} 
               controls 
               style={{ 
@@ -375,4 +365,3 @@ export default function AdminCommunity() {
     </div>
   );
 }
-

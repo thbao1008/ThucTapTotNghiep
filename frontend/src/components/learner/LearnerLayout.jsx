@@ -11,9 +11,7 @@ export default function LearnerLayout({ children }) {
         <LearnerSidebar />
       </aside>
       <div className="shell-main">
-        <header className="shell-header">
-          <LearnerHeader />
-        </header>
+        <LearnerHeader />
         <div className="learner-breadcrumbs">{/* breadcrumbs nếu cần */}</div>
         <main className="shell-content">
           {children ?? <Outlet />}

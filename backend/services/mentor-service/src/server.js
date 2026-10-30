@@ -6,7 +6,8 @@ import "./config/db.js";
 import { authGuard } from "./middleware/authGuard.js";
 import { packageGuard } from "./middleware/packageGuard.js";
 import mentorRoutes from "./routes/mentorRoutes.js";
-import "./queueHandlers.js"; // Register queue processors
+import pool from './config/db.js';
+import { createClassroomRouter } from './classroom/classroomRouter.js';
 
 const app = express();
 const PORT = process.env.MENTOR_SERVICE_PORT || 4006;
@@ -32,6 +33,9 @@ const conditionalPackageGuard = (req, res, next) => {
 };
 
 // Routes
+// Shared classes/chat are available to active signed-in learners and mentors,
+// independently of the private assigned-Mentor schedule/package workflow.
+app.use('/mentors/classroom', authGuard, createClassroomRouter({ pool }));
 app.use("/mentors", authGuard, conditionalPackageGuard, mentorRoutes);
 
 // Error handler

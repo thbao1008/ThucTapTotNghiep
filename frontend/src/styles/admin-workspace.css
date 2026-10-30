@@ -1,0 +1,29 @@
+/* Shared Admin work pages. Legacy page rules remain scoped underneath. */
+body .theme-admin .admin-workspace-page{max-width:1320px;margin:0 auto;padding:0;background:transparent;border:0;border-radius:0;box-shadow:none;color:#243b47;min-width:0}
+body .theme-admin .admin-page-heading{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin:0 0 26px;padding:0;background:none;border:0;box-shadow:none}
+body .theme-admin .admin-page-kicker{display:block;margin:0 0 7px;font-size:10px;font-weight:700;letter-spacing:1.8px;text-transform:uppercase;color:#78909b}
+body .theme-admin .admin-page-heading h1{margin:0 0 8px;color:#203c49;font-size:30px;font-weight:650;letter-spacing:-.9px;line-height:1.2}
+body .theme-admin .admin-page-heading p{font-size:13px;line-height:1.7;color:#7d8c96;margin:0;max-width:640px}
+body .theme-admin .admin-page-actions{display:flex;align-items:center;gap:9px;flex-shrink:0}
+body .theme-admin .admin-workspace-page :is(button,input,select,textarea){font:inherit;font-size:13px}
+body .theme-admin .admin-workspace-page button{display:inline-flex;align-items:center;justify-content:center;gap:7px;cursor:pointer}
+body .theme-admin .admin-workspace-page button:disabled{cursor:default;opacity:.55}
+body .theme-admin .admin-workspace-page button svg{flex-shrink:0;width:16px;height:16px}
+body .theme-admin .admin-workspace-page .btn-primary{background:#285f62;border:1px solid #285f62;border-radius:9px;color:#fff;box-shadow:none;font-size:12px;font-weight:600;padding:10px 15px;min-height:39px;transform:none}
+body .theme-admin .admin-workspace-page .btn-primary:hover{background:#224f52;box-shadow:none;transform:none}
+body .theme-admin .admin-workspace-page :is(.btn-ghost,.btn-secondary){background:#fff;border:1px solid #dce4e8;border-radius:9px;color:#617782;box-shadow:none;transform:none;min-height:36px;padding:8px 12px}
+body .theme-admin .admin-table-wrap{width:100%;min-width:0;overflow-x:auto;border:1px solid #e2e8ec;border-radius:13px;background:#fff}
+body .theme-admin .admin-workspace-page table.table{display:table;width:100%;border-collapse:collapse;border-spacing:0;margin:0;background:#fff;border:0;box-shadow:none;border-radius:0;font-size:12px;table-layout:auto}
+body .theme-admin .admin-workspace-page table.table thead{background:#f5f8f9}
+body .theme-admin .admin-workspace-page table.table th{background:#f5f8f9;color:#81909a;font-size:10px;font-weight:650;letter-spacing:.35px;padding:13px 18px;text-shadow:none;text-transform:none;white-space:nowrap;border:0;border-bottom:1px solid #e6ecef}
+body .theme-admin .admin-workspace-page table.table td{padding:16px 18px;vertical-align:middle;color:#526b77;border:0;border-bottom:1px solid #edf1f3;line-height:1.6;background:transparent}
+body .theme-admin .admin-workspace-page table.table tbody tr:last-child td{border-bottom:0}
+body .theme-admin .admin-workspace-page table.table tbody tr:hover{background:#fafcfc;transform:none;box-shadow:none}
+body .theme-admin .admin-workspace-page .admin-empty{padding:52px 24px;text-align:center;color:#7e929c;font-size:13px;background:#fff;border:1px dashed #dce5e8;border-radius:13px}
+body .theme-admin .admin-workspace-page .admin-error{padding:12px 15px;border:1px solid #efdbdc;background:#fff7f7;color:#9c555b;border-radius:9px;font-size:12px;margin-bottom:18px}
+body .theme-admin .admin-workspace-page :is(input,select,textarea){border:1px solid #dde5e9;background:#fff;color:#385462;border-radius:8px;box-shadow:none}
+body .theme-admin .admin-workspace-page :is(input,select){min-height:39px}
+body .theme-admin .admin-workspace-page :is(input,select,textarea):focus{border-color:#82b5b1;outline:2px solid #bedcd854;outline-offset:1px;box-shadow:none}
+body .theme-admin .admin-workspace-page input::placeholder{color:#9cabb3}
+body .theme-admin .admin-workspace-page .admin-filter-label{font-size:11px;color:#81939e;font-weight:600;display:flex;flex-direction:column;gap:6px}
+@media(max-width:850px){body .theme-admin .admin-page-heading{align-items:flex-start;flex-direction:column;gap:16px}body .theme-admin .admin-page-heading h1{font-size:26px}body .theme-admin .admin-page-actions{flex-wrap:wrap}body .theme-admin .admin-workspace-page table.table td{padding:13px 14px}}

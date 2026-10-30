@@ -1,5 +1,8 @@
+import { UiOption } from '../../i18n/UiLanguage.jsx';
+import { englishText } from '../../i18n/uiLanguage.js';
+import { UiText } from '../../i18n/UiLanguage.jsx';
 ﻿// src/components/admin/Dashboard.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import api from "../../api.js";
 import { 
   FaUserGraduate, 
@@ -61,22 +64,7 @@ export default function Dashboard() {
     weekTraffic: 0
   });
   const [activity, setActivity] = useState([]);
-  const [aiProgress, setAiProgress] = useState({
-    trainingSamples: 0,
-    newSamples: 0,
-    totalModels: 0,
-    accuracy: null,
-    status: 'initializing',
-    taskTypes: {},
-    tokenUsage: {
-      used: 0,
-      usedToday: 0,
-      usedThisMonth: 0,
-      limit: 1000000,
-      percentage: 0,
-      status: 'ok'
-    }
-  });
+  const [aiProgress, setAiProgress] = useState(null);
   const [chartData, setChartData] = useState({
     revenue6Months: [],
     userGrowth: [],
@@ -99,59 +87,34 @@ export default function Dashboard() {
     traffic: 0,
     daily: 0
   });
+  const loadEpoch = useRef(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
     loadAllData();
     const interval = setInterval(loadAllData, 120000); // Refresh mỗi 2 phút để tránh tốn tài nguyên
-    return () => clearInterval(interval);
+    return () => { clearInterval(interval); loadEpoch.current++; };
   }, [timeframe, periodOffset]);
 
   async function loadAllData() {
+    const epoch=++loadEpoch.current;
     try {
       setError(null);
-      
-      // Load dashboard stats
-      const statsRes = await api.get("/admin/dashboard/stats");
-      if (statsRes.data?.success && statsRes.data.stats) {
-        setStats(statsRes.data.stats);
-      }
-
-      // Load traffic stats
-      const trafficRes = await api.get("/admin/dashboard/traffic");
-      if (trafficRes.data?.success && trafficRes.data.stats) {
-        setTrafficStats(trafficRes.data.stats);
-      }
-
-      // Load activity
-      const activityRes = await api.get("/admin/dashboard/activity?limit=8");
-      if (activityRes.data?.success && activityRes.data.activity) {
-        setActivity(activityRes.data.activity || []);
-      }
-
-      // Load AiESP learning progress
-      const aiRes = await api.get("/admin/dashboard/ai-progress");
-      if (aiRes.data?.success && aiRes.data.progress) {
-        setAiProgress(aiRes.data.progress);
-      }
-
-      // Load chart data với timeframe và period offset
-      const chartRes = await api.get(`/admin/dashboard/charts?revenue=${timeframe.revenue}&users=${timeframe.users}&traffic=${timeframe.traffic}&daily=${timeframe.daily}&revenueOffset=${periodOffset.revenue}&usersOffset=${periodOffset.users}&trafficOffset=${periodOffset.traffic}&dailyOffset=${periodOffset.daily}`);
-      if (chartRes.data?.success && chartRes.data.chartData) {
-        setChartData(chartRes.data.chartData);
-      }
-      } catch (err) {
-      console.error("❌ Lỗi load dashboard data:", err);
-      setError("Không thể tải dữ liệu dashboard");
-    } finally {
-      setLoading(false);
-    }
+      const [summary,traffic,activity,provider,charts]=await Promise.all([
+        api.get('/admin/dashboard/stats'),api.get('/admin/dashboard/traffic'),api.get('/admin/dashboard/activity?limit=8'),api.get('/admin/dashboard/ai-progress'),
+        api.get(`/admin/dashboard/charts?revenue=${timeframe.revenue}&users=${timeframe.users}&traffic=${timeframe.traffic}&daily=${timeframe.daily}&revenueOffset=${periodOffset.revenue}&usersOffset=${periodOffset.users}&trafficOffset=${periodOffset.traffic}&dailyOffset=${periodOffset.daily}`)
+      ]);
+      if(epoch!==loadEpoch.current)return;
+      if(![summary,traffic,activity,provider,charts].every(res=>res.data?.success))throw Error('Incomplete dashboard response');
+      setStats(summary.data.stats);setTrafficStats(traffic.data.stats);setActivity(activity.data.activity);setAiProgress(provider.data.progress);setChartData(charts.data.chartData);
+    } catch {if(epoch===loadEpoch.current)setError('Không thể tải đầy đủ dữ liệu dashboard. Vui lòng thử lại.');}
+    finally {if(epoch===loadEpoch.current)setLoading(false);}
   }
 
   const formatCurrency = (amount) => {
     if (!amount || amount === 0) return "₫0";
-    return new Intl.NumberFormat('vi-VN', {
+    return new Intl.NumberFormat('en-GB', {
       style: 'currency',
       currency: 'VND',
       maximumFractionDigits: 0
@@ -172,30 +135,12 @@ export default function Dashboard() {
     if (diffHours < 24) return `${diffHours} giờ trước`;
     if (diffDays < 7) return `${diffDays} ngày trước`;
     
-    return date.toLocaleDateString('vi-VN', {
+    return date.toLocaleDateString('en-GB', {
       day: '2-digit',
       month: '2-digit',
       hour: '2-digit',
       minute: '2-digit'
     });
-  };
-
-  const getAIStatusColor = (status) => {
-    switch (status) {
-      case 'excellent': return '#10b981';
-      case 'good': return '#3b82f6';
-      case 'training': return '#f59e0b';
-      default: return '#6b7280';
-    }
-  };
-
-  const getAIStatusText = (status) => {
-    switch (status) {
-      case 'excellent': return 'Xuất sắc';
-      case 'good': return 'Tốt';
-      case 'training': return 'Đang huấn luyện';
-      default: return 'Khởi tạo';
-    }
   };
 
   // Tính toán growth rate
@@ -236,11 +181,11 @@ export default function Dashboard() {
       targetWeekEnd.setDate(targetWeekStart.getDate() + 6);
       targetWeekEnd.setHours(23, 59, 59, 999);
       
-      return `Tuần ${targetWeekStart.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} - ${targetWeekEnd.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+      return `Tuần ${targetWeekStart.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })} - ${targetWeekEnd.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
     } else if (timeframeType === 'month') {
       // Tính tháng hiện tại (hoặc tháng offset)
       const targetMonth = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-      return `Tháng ${targetMonth.toLocaleDateString('vi-VN', { month: 'numeric', year: 'numeric' })}`;
+      return `Tháng ${targetMonth.toLocaleDateString('en-GB', { month: 'numeric', year: 'numeric' })}`;
     } else if (timeframeType === 'year') {
       // Tính năm hiện tại (hoặc năm offset)
       const targetYear = now.getFullYear() + offset;
@@ -277,7 +222,7 @@ export default function Dashboard() {
         weekEnd.setDate(weekStart.getDate() + 6);
         weekEnd.setHours(23, 59, 59, 999);
         
-        return `Tuần ${weekStart.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} - ${weekEnd.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+        return `Tuần ${weekStart.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })} - ${weekEnd.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
       } else {
         // Nhiều tuần: hiển thị tuần đầu và tuần cuối
         const firstWeekStart = new Date(startDate);
@@ -296,14 +241,14 @@ export default function Dashboard() {
         lastWeekEnd.setDate(lastWeekStart.getDate() + 6);
         lastWeekEnd.setHours(23, 59, 59, 999);
         
-        return `Từ ${firstWeekStart.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })} đến ${lastWeekEnd.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
+        return `Từ ${firstWeekStart.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })} đến ${lastWeekEnd.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' })}`;
       }
     } else if (timeframeType === 'month') {
       if (data.length === 1) {
-        return `Tháng ${startDate.toLocaleDateString('vi-VN', { month: 'numeric', year: 'numeric' })}`;
+        return `Tháng ${startDate.toLocaleDateString('en-GB', { month: 'numeric', year: 'numeric' })}`;
       } else {
         // Nhiều tháng: hiển thị tháng đầu và tháng cuối
-        return `Từ ${startDate.toLocaleDateString('vi-VN', { month: 'numeric', year: 'numeric' })} đến ${endDate.toLocaleDateString('vi-VN', { month: 'numeric', year: 'numeric' })}`;
+        return `Từ ${startDate.toLocaleDateString('en-GB', { month: 'numeric', year: 'numeric' })} đến ${endDate.toLocaleDateString('en-GB', { month: 'numeric', year: 'numeric' })}`;
       }
     } else if (timeframeType === 'year') {
       if (data.length === 1) {
@@ -336,16 +281,16 @@ export default function Dashboard() {
     labels: chartData.revenue6Months.map(item => {
       const date = new Date(item.period || item.month);
       if (timeframe.revenue === 'year') {
-        return date.toLocaleDateString('vi-VN', { year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { year: 'numeric' });
       } else if (timeframe.revenue === 'month') {
-        return date.toLocaleDateString('vi-VN', { month: 'short', year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
       } else {
-        return date.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' });
+        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       }
     }),
     datasets: [
       {
-        label: 'Doanh thu (₫)',
+        label: englishText("Giá trị đăng ký (₫)"),
         data: revenueData,
         borderColor: revenueColors.length > 0 ? revenueColors : 'rgb(245, 158, 11)',
         backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -376,16 +321,16 @@ export default function Dashboard() {
     labels: chartData.userGrowth.map(item => {
       const date = new Date(item.period || item.month);
       if (timeframe.users === 'year') {
-        return date.toLocaleDateString('vi-VN', { year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { year: 'numeric' });
       } else if (timeframe.users === 'month') {
-        return date.toLocaleDateString('vi-VN', { month: 'short', year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
       } else {
-        return date.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' });
+        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       }
     }),
     datasets: [
       {
-        label: 'Học viên',
+        label: englishText("Học viên"),
         data: chartData.userGrowth.map(item => item.learners),
         borderColor: 'rgb(59, 130, 246)',
         backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -399,7 +344,7 @@ export default function Dashboard() {
         pointBorderWidth: 2
       },
       {
-        label: 'Giảng viên',
+        label: englishText("Giảng viên"),
         data: chartData.userGrowth.map(item => item.mentors),
         borderColor: 'rgb(16, 185, 129)',
         backgroundColor: 'rgba(16, 185, 129, 0.1)',
@@ -480,7 +425,7 @@ export default function Dashboard() {
         ...chartOptions.plugins.tooltip,
         callbacks: {
           label: function(context) {
-            return `Doanh thu: ${formatCurrency(context.parsed.y)}`;
+            return `Giá trị đăng ký: ${formatCurrency(context.parsed.y)}`;
           }
         }
       }
@@ -545,16 +490,16 @@ export default function Dashboard() {
     labels: chartData.traffic7Days?.map(item => {
       const date = new Date(item.period || item.date);
       if (timeframe.traffic === 'year') {
-        return date.toLocaleDateString('vi-VN', { year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { year: 'numeric' });
       } else if (timeframe.traffic === 'month') {
-        return date.toLocaleDateString('vi-VN', { month: 'short', year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
       } else {
-        return date.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' });
+        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       }
     }) || [],
     datasets: [
       {
-        label: 'Lượt truy cập',
+        label: englishText("Lượt truy cập"),
         data: visitorsData,
         borderColor: visitorsColors.length > 0 ? visitorsColors : 'rgb(59, 130, 246)',
         backgroundColor: 'rgba(59, 130, 246, 0.1)',
@@ -611,16 +556,16 @@ export default function Dashboard() {
     labels: chartData.dailyRevenue?.map(item => {
       const date = new Date(item.period || item.date);
       if (timeframe.daily === 'week') {
-        return date.toLocaleDateString('vi-VN', { day: 'numeric', month: 'short' });
+        return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
       } else if (timeframe.daily === 'month') {
-        return date.toLocaleDateString('vi-VN', { month: 'short', year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
       } else {
-        return date.toLocaleDateString('vi-VN', { year: 'numeric' });
+        return date.toLocaleDateString('en-GB', { year: 'numeric' });
       }
     }) || [],
     datasets: [
       {
-        label: 'Doanh thu',
+        label: englishText("Giá trị đăng ký"),
         data: dailyRevenueData,
         borderColor: dailyRevenueColors.length > 0 ? dailyRevenueColors : 'rgb(245, 158, 11)',
         backgroundColor: 'rgba(245, 158, 11, 0.1)',
@@ -654,7 +599,7 @@ export default function Dashboard() {
         ...chartOptions.plugins.tooltip,
         callbacks: {
           label: function(context) {
-            return `Doanh thu: ${formatCurrency(context.parsed.y)}`;
+            return `Giá trị đăng ký: ${formatCurrency(context.parsed.y)}`;
           }
         }
       }
@@ -746,7 +691,7 @@ export default function Dashboard() {
     labels: chartData.revenueByPackage?.map(item => item.name.length > 25 ? item.name.substring(0, 25) + '...' : item.name) || [],
     datasets: [
       {
-        label: 'Doanh thu (₫)',
+        label: englishText("Giá trị đăng ký (₫)"),
         data: chartData.revenueByPackage?.map(item => item.totalRevenue) || [],
         backgroundColor: 'rgba(245, 158, 11, 0.8)',
         borderColor: 'rgb(245, 158, 11)',
@@ -769,7 +714,7 @@ export default function Dashboard() {
         padding: 12,
         callbacks: {
           label: function(context) {
-            return `Doanh thu: ${formatCurrency(context.parsed.x)}`;
+            return `Giá trị đăng ký: ${formatCurrency(context.parsed.x)}`;
           }
         }
       }
@@ -925,7 +870,7 @@ export default function Dashboard() {
     return (
       <div className="dashboard-loading">
         <div className="loading-spinner"></div>
-        <p>Đang tải dữ liệu...</p>
+        <p><UiText text={"Đang tải dữ liệu..."} /></p>
       </div>
     );
   }
@@ -933,10 +878,8 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="dashboard-error">
-        <p>{error}</p>
-        <button className="btn btn-primary" onClick={loadAllData}>
-          Thử lại
-        </button>
+        <p><UiText>{error}</UiText></p>
+        <button className="btn btn-primary" onClick={loadAllData}>{" "}<UiText text={"Thử lại"} />{" "}</button>
       </div>
     );
   }
@@ -945,8 +888,8 @@ export default function Dashboard() {
     <div className="admin-dashboard">
       {/* Header */}
       <div className="dashboard-header">
-        <h1>Dashboard</h1>
-        <button className="btn-refresh" onClick={loadAllData} title="Làm mới">
+        <h1><UiText text={"Dashboard"} /></h1>
+        <button className="btn-refresh" onClick={loadAllData} title={englishText("Làm mới")}>
           <FiRefreshCw />
         </button>
       </div>
@@ -958,8 +901,8 @@ export default function Dashboard() {
             <FaUserGraduate />
           </div>
           <div className="card-content">
-            <div className="card-label">Học viên</div>
-            <div className="card-value">{stats.totalLearners.toLocaleString()}</div>
+            <div className="card-label"><UiText text={"Học viên"} /></div>
+            <div className="card-value"><UiText>{stats.totalLearners.toLocaleString()}</UiText></div>
           </div>
         </div>
 
@@ -968,8 +911,8 @@ export default function Dashboard() {
             <FaChalkboardTeacher />
           </div>
           <div className="card-content">
-            <div className="card-label">Giảng viên</div>
-            <div className="card-value">{stats.totalMentors.toLocaleString()}</div>
+            <div className="card-label"><UiText text={"Giảng viên"} /></div>
+            <div className="card-value"><UiText>{stats.totalMentors.toLocaleString()}</UiText></div>
           </div>
         </div>
 
@@ -978,8 +921,8 @@ export default function Dashboard() {
             <FaDollarSign />
           </div>
           <div className="card-content">
-            <div className="card-label">Doanh thu</div>
-            <div className="card-value">{formatCurrency(stats.totalRevenue)}</div>
+            <div className="card-label"><UiText text={"Giá trị đăng ký"} /></div>
+            <div className="card-value"><UiText>{formatCurrency(stats.totalRevenue)}</UiText></div>
           </div>
         </div>
 
@@ -988,8 +931,8 @@ export default function Dashboard() {
             <FaBox />
           </div>
           <div className="card-content">
-            <div className="card-label">Gói dịch vụ</div>
-            <div className="card-value">{stats.totalPackages.toLocaleString()}</div>
+            <div className="card-label"><UiText text={"Gói dịch vụ"} /></div>
+            <div className="card-value"><UiText>{stats.totalPackages.toLocaleString()}</UiText></div>
           </div>
         </div>
 
@@ -999,7 +942,7 @@ export default function Dashboard() {
           </div>
           <div className="card-content">
             <div className="card-label">Challenge</div>
-            <div className="card-value">{stats.totalChallenges.toLocaleString()}</div>
+            <div className="card-value"><UiText>{stats.totalChallenges.toLocaleString()}</UiText></div>
           </div>
         </div>
 
@@ -1008,8 +951,8 @@ export default function Dashboard() {
             <FaUsers />
           </div>
           <div className="card-content">
-            <div className="card-label">Người dùng</div>
-            <div className="card-value">{stats.totalActiveUsers.toLocaleString()}</div>
+            <div className="card-label"><UiText text={"Tài khoản đang hoạt động"} /></div>
+            <div className="card-value"><UiText>{stats.totalActiveUsers.toLocaleString()}</UiText></div>
           </div>
         </div>
       </div>
@@ -1020,29 +963,27 @@ export default function Dashboard() {
         <div className="dashboard-card traffic-card">
           <div className="card-header">
             <h3>
-              <FaChartLine />
-              Lưu lượng truy cập
-            </h3>
+              <FaChartLine />{" "}<UiText text={"Lưu lượng truy cập"} />{" "}</h3>
           </div>
           <div className="traffic-stats">
             <div className="traffic-item">
-              <div className="traffic-label">Tổng lưu lượng</div>
-              <div className="traffic-value">{trafficStats.totalTraffic.toLocaleString()}</div>
+              <div className="traffic-label"><UiText text={"Tổng lưu lượng"} /></div>
+              <div className="traffic-value"><UiText>{trafficStats.totalTraffic.toLocaleString()}</UiText></div>
             </div>
             <div className="traffic-item">
-              <div className="traffic-label">Hiện tại</div>
-              <div className="traffic-value primary">{trafficStats.todayTraffic.toLocaleString()}</div>
+              <div className="traffic-label"><UiText text={"Hiện tại"} /></div>
+              <div className="traffic-value primary"><UiText>{trafficStats.todayTraffic.toLocaleString()}</UiText></div>
             </div>
             <div className="traffic-item">
-              <div className="traffic-label">Đang online</div>
+              <div className="traffic-label"><UiText text={"Đang online"} /></div>
               <div className="traffic-value success">
                 <FaUserCheck style={{ marginRight: 4 }} />
-                {trafficStats.onlineUsers}
+                <UiText>{trafficStats.onlineUsers}</UiText>
               </div>
             </div>
             <div className="traffic-item">
-              <div className="traffic-label">7 ngày qua</div>
-              <div className="traffic-value">{trafficStats.weekTraffic.toLocaleString()}</div>
+              <div className="traffic-label"><UiText text={"7 ngày qua"} /></div>
+              <div className="traffic-value"><UiText>{trafficStats.weekTraffic.toLocaleString()}</UiText></div>
             </div>
           </div>
           
@@ -1063,11 +1004,9 @@ export default function Dashboard() {
                 background: "#f9fafb", 
                 borderRadius: "8px" 
               }}>
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>
-                  Người truy cập hôm nay
-                </div>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>{" "}<UiText text={"Người truy cập hôm nay"} />{" "}</div>
                 <div style={{ fontSize: "18px", fontWeight: "600", color: "#1f2937" }}>
-                  {trafficStats.todayUniqueVisitors || 0}
+                  <UiText>{trafficStats.todayUniqueVisitors || 0}</UiText>
                 </div>
               </div>
               <div style={{ 
@@ -1075,11 +1014,9 @@ export default function Dashboard() {
                 background: "#f9fafb", 
                 borderRadius: "8px" 
               }}>
-                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>
-                  Người truy cập 7 ngày
-                </div>
+                <div style={{ fontSize: "12px", color: "#6b7280", marginBottom: "4px" }}>{" "}<UiText text={"Người truy cập 7 ngày"} />{" "}</div>
                 <div style={{ fontSize: "18px", fontWeight: "600", color: "#1f2937" }}>
-                  {trafficStats.weekUniqueVisitors || 0}
+                  <UiText>{trafficStats.weekUniqueVisitors || 0}</UiText>
                 </div>
               </div>
             </div>
@@ -1087,9 +1024,7 @@ export default function Dashboard() {
             {/* Biểu đồ mini 7 ngày */}
             {chartData.traffic7Days && chartData.traffic7Days.length > 0 && (
               <div style={{ marginTop: "16px" }}>
-                <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px", fontWeight: "500" }}>
-                  Xu hướng 7 ngày qua
-                </div>
+                <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px", fontWeight: "500" }}>{" "}<UiText text={"Xu hướng 7 ngày qua"} />{" "}</div>
                 <div style={{ 
                   display: "flex", 
                   alignItems: "flex-end", 
@@ -1113,7 +1048,7 @@ export default function Dashboard() {
                           transition: "all 0.3s"
                         }}></div>
                         <div style={{ fontSize: "10px", color: "#9ca3af", marginTop: "4px" }}>
-                          {new Date(day.date || day.period).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' })}
+                          <UiText>{new Date(day.date || day.period).toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' })}</UiText>
                         </div>
                       </div>
                     );
@@ -1130,199 +1065,28 @@ export default function Dashboard() {
               borderRadius: "8px",
               border: "1px solid #dbeafe"
             }}>
-              <div style={{ fontSize: "12px", color: "#1e40af", fontWeight: "500", marginBottom: "4px" }}>
-                💡 Mẹo tăng traffic
-              </div>
+              <div style={{ fontSize: "12px", color: "#1e40af", fontWeight: "500", marginBottom: "4px" }}>{" "}<UiText text={"💡 Mẹo tăng traffic"} />{" "}</div>
               <div style={{ fontSize: "11px", color: "#3b82f6", lineHeight: "1.5" }}>
-                {trafficStats.totalTraffic < 100 
+                <UiText>{trafficStats.totalTraffic < 100
                   ? "Tăng cường marketing, SEO và quảng cáo để thu hút người dùng mới"
                   : trafficStats.onlineUsers === 0
                   ? "Tạo nội dung hấp dẫn và thông báo để người dùng quay lại"
-                  : "Hệ thống đang hoạt động tốt! Tiếp tục duy trì chất lượng dịch vụ"}
+                  : "Hệ thống đang hoạt động tốt! Tiếp tục duy trì chất lượng dịch vụ"}</UiText>
               </div>
             </div>
           </div>
         </div>
 
-        {/* AiESP Learning Progress */}
         <div className="dashboard-card ai-card">
-          <div className="card-header">
-            <h3>
-              <FaRobot />
-              Tiến trình AiESP Học Tập
-            </h3>
-          </div>
-          <div className="ai-stats">
-            <div className="ai-item">
-              <div className="ai-label">Training Samples</div>
-              <div className="ai-value">{aiProgress.trainingSamples.toLocaleString()}</div>
-              <div className="ai-desc">Mẫu đã huấn luyện</div>
-            </div>
-            <div className="ai-item">
-              <div className="ai-label">New Samples</div>
-              <div className="ai-value" style={{ color: aiProgress.newSamples > 0 ? '#f59e0b' : '#6b7280' }}>
-                {aiProgress.newSamples.toLocaleString()}
-              </div>
-              <div className="ai-desc">Mẫu mới chưa train</div>
-            </div>
-            <div className="ai-item">
-              <div className="ai-label">Models</div>
-              <div className="ai-value">{aiProgress.totalModels}</div>
-              <div className="ai-desc">Số mô hình đã train</div>
-            </div>
-            {aiProgress.accuracy !== null && (
-              <div className="ai-item">
-                <div className="ai-label">Độ chính xác</div>
-                <div className="ai-value" style={{ color: getAIStatusColor(aiProgress.status) }}>
-                  {(aiProgress.accuracy * 100).toFixed(1)}%
-                </div>
-                <div className="ai-desc">Hiệu suất trung bình</div>
-              </div>
-            )}
-            <div className="ai-status">
-              <span 
-                className="status-badge"
-                style={{ 
-                  background: getAIStatusColor(aiProgress.status) + "20",
-                  color: getAIStatusColor(aiProgress.status)
-                }}
-              >
-                {getAIStatusText(aiProgress.status)}
-              </span>
-            </div>
-          </div>
-          
-          {/* Task Types Breakdown */}
-          {aiProgress.taskTypes && Object.keys(aiProgress.taskTypes).length > 0 && (
-          <div style={{ 
-            marginTop: "20px", 
-            paddingTop: "20px", 
-            borderTop: "1px solid #e5e7eb" 
-          }}>
-              <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "12px", fontWeight: "500" }}>
-                Các Task Types
+          <div className="card-header"><h3><FaRobot /> AI Groq</h3></div>
+          <p><UiText>{aiProgress ? (aiProgress.configured ? 'Đã cấu hình Groq' : 'Chưa cấu hình khóa Groq') : 'Chưa tải được cấu hình AI'}</UiText></p>
+          {aiProgress && <p><UiText text={"Mô hình:"} />{" "}<UiText>{aiProgress.model}</UiText></p>}
+          <p><UiText text={"Chưa có số liệu token và hạn mức sử dụng. Cấu hình khóa chưa xác nhận kết nối hoặc hạn mức còn lại."} /></p>
         </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "8px" }}>
-                {Object.entries(aiProgress.taskTypes).map(([taskType, stats]) => (
-                  <div key={taskType} style={{ 
-                  padding: "10px", 
-                    background: stats.latestAccuracy && stats.latestAccuracy >= 0.85 ? "#f0fdf4" : stats.latestAccuracy && stats.latestAccuracy >= 0.70 ? "#fef3c7" : "#fee2e2", 
-                  borderRadius: "6px",
-                    border: `1px solid ${stats.latestAccuracy && stats.latestAccuracy >= 0.85 ? "#bbf7d0" : stats.latestAccuracy && stats.latestAccuracy >= 0.70 ? "#fde68a" : "#fecaca"}`
-                }}>
-                    <div style={{ fontSize: "11px", color: "#6b7280", marginBottom: "4px" }}>
-                      {taskType.replace('_', ' ').toUpperCase()}
-                  </div>
-                    <div style={{ fontSize: "14px", fontWeight: "600", color: "#1f2937" }}>
-                      {stats.latestAccuracy ? `${(stats.latestAccuracy * 100).toFixed(1)}%` : "Chưa train"}
-                  </div>
-                    <div style={{ fontSize: "10px", color: "#9ca3af", marginTop: "2px" }}>
-                      {stats.trainingSamples} samples
-                </div>
-                  </div>
-                ))}
-                  </div>
-                </div>
-          )}
-                  </div>
-
-        {/* Token Usage */}
-        <div className="dashboard-card ai-card">
-          <div className="card-header">
-            <h3>
-              <FaChartLine />
-              Token Usage (OpenRouter)
-            </h3>
-                  </div>
-          <div className="ai-stats">
-            <div className="ai-item">
-              <div className="ai-label">Used (Total)</div>
-              <div className="ai-value" style={{ 
-                color: aiProgress.tokenUsage?.status === 'warning' ? '#ef4444' : 
-                       aiProgress.tokenUsage?.status === 'caution' ? '#f59e0b' : '#10b981'
-              }}>
-                {aiProgress.tokenUsage?.used.toLocaleString() || 0}
-                  </div>
-              <div className="ai-desc">Tokens đã sử dụng</div>
-                  </div>
-            <div className="ai-item">
-              <div className="ai-label">Used (Today)</div>
-              <div className="ai-value">{aiProgress.tokenUsage?.usedToday.toLocaleString() || 0}</div>
-              <div className="ai-desc">Tokens hôm nay</div>
-                </div>
-            <div className="ai-item">
-              <div className="ai-label">Used (This Month)</div>
-              <div className="ai-value">{aiProgress.tokenUsage?.usedThisMonth.toLocaleString() || 0}</div>
-              <div className="ai-desc">Tokens tháng này</div>
-            </div>
-            <div className="ai-item">
-              <div className="ai-label">Limit</div>
-              <div className="ai-value">{aiProgress.tokenUsage?.limit.toLocaleString() || 'N/A'}</div>
-              <div className="ai-desc">Giới hạn tokens</div>
-              </div>
-            </div>
-            
-          {/* Token Usage Progress Bar */}
-          <div style={{ 
-            marginTop: "20px", 
-            paddingTop: "20px", 
-            borderTop: "1px solid #e5e7eb" 
-          }}>
-              <div style={{ fontSize: "13px", color: "#6b7280", marginBottom: "8px", fontWeight: "500" }}>
-              Token Usage: {aiProgress.tokenUsage?.percentage.toFixed(1) || 0}%
-              </div>
-              <div style={{ 
-              height: "12px", 
-                background: "#e5e7eb", 
-              borderRadius: "6px",
-                overflow: "hidden"
-              }}>
-                <div style={{
-                  height: "100%",
-                width: `${Math.min(aiProgress.tokenUsage?.percentage || 0, 100)}%`,
-                background: aiProgress.tokenUsage?.status === 'warning' 
-                  ? "linear-gradient(90deg, #ef4444, #dc2626)"
-                  : aiProgress.tokenUsage?.status === 'caution'
-                  ? "linear-gradient(90deg, #f59e0b, #d97706)"
-                  : "linear-gradient(90deg, #10b981, #059669)",
-                  transition: "width 0.3s",
-                borderRadius: "6px"
-                }}></div>
-              </div>
-              <div style={{ fontSize: "11px", color: "#6b7280", marginTop: "4px" }}>
-              {aiProgress.tokenUsage?.used.toLocaleString() || 0} / {aiProgress.tokenUsage?.limit.toLocaleString() || 'N/A'} tokens
-              </div>
-            {aiProgress.tokenUsage?.status === 'warning' && (
-            <div style={{ 
-                padding: "8px", 
-                background: "#fee2e2", 
-                borderRadius: "6px",
-                border: "1px solid #fecaca",
-                marginTop: "8px"
-            }}>
-                <div style={{ fontSize: "11px", color: "#dc2626" }}>
-                  ⚠️ Token usage đã vượt quá 90% giới hạn. Vui lòng kiểm tra và điều chỉnh.
-              </div>
-              </div>
-            )}
-            {aiProgress.tokenUsage?.status === 'caution' && (
-              <div style={{ 
-                padding: "8px", 
-                background: "#fef3c7", 
-                borderRadius: "6px",
-                border: "1px solid #fde68a",
-                marginTop: "8px"
-              }}>
-                <div style={{ fontSize: "11px", color: "#b45309" }}>
-                  ⚠️ Token usage đã vượt quá 70% giới hạn. Cần theo dõi.
-                    </div>
-                </div>
-              )}
-                </div>
-                </div>
       </div>
 
-      {/* Charts Section - Professional Analytics Dashboard */}
+      <p><UiText text={"Giá trị đăng ký tính theo giá gói hiện tại, chưa phải doanh thu thanh toán được đối soát."} /></p>
+      {/* Charts Section */}
       <div className="charts-section">
         {/* Row 1: User Growth */}
         <div className="chart-row">
@@ -1332,11 +1096,9 @@ export default function Dashboard() {
               <div>
                 <div>
                   <h3>
-                    <FaUsers />
-                    Tăng trưởng Người dùng
-                  </h3>
+                    <FaUsers />{" "}<UiText text={"Tăng trưởng Người dùng"} />{" "}</h3>
                   <div className="period-range">
-                    {getPeriodRangeFromOffset(timeframe.users, periodOffset.users)}
+                    <UiText>{getPeriodRangeFromOffset(timeframe.users, periodOffset.users)}</UiText>
                   </div>
                 </div>
                 <div className="timeframe-controls">
@@ -1348,28 +1110,26 @@ export default function Dashboard() {
                       setPeriodOffset({...periodOffset, users: 0}); // Reset về kỳ hiện tại
                     }}
                   >
-                    <option value="year">Theo năm</option>
-                    <option value="month">Theo tháng</option>
-                    <option value="week">Theo tuần</option>
+                    <UiOption value="year">{"Theo năm"}</UiOption>
+                    <UiOption value="month">{"Theo tháng"}</UiOption>
+                    <UiOption value="week">{"Theo tuần"}</UiOption>
                   </select>
                   <button
                     className="nav-button"
                     onClick={() => setPeriodOffset({...periodOffset, users: periodOffset.users - 1})}
-                    title="Kỳ trước"
+                    title={englishText("Kỳ trước")}
                   >
                     <FiChevronLeft />
                   </button>
                   <button
                     className={`nav-button reset ${periodOffset.users === 0 ? 'active' : ''}`}
                     onClick={() => setPeriodOffset({...periodOffset, users: 0})}
-                    title="Về hiện tại"
-                  >
-                    Hiện tại
-                  </button>
+                    title={englishText("Về hiện tại")}
+                  >{" "}<UiText text={"Hiện tại"} />{" "}</button>
                   <button
                     className="nav-button"
                     onClick={() => setPeriodOffset({...periodOffset, users: periodOffset.users + 1})}
-                    title="Kỳ sau"
+                    title={englishText("Kỳ sau")}
                   >
                     <FiChevronRight />
                   </button>
@@ -1379,22 +1139,22 @@ export default function Dashboard() {
                 {learnersData.length > 0 && (
                   <>
                     <div className="summary-item">
-                      <span className="summary-label">Tổng HV:</span>
-                      <span className="summary-value">{totalLearners.toLocaleString()}</span>
+                      <span className="summary-label"><UiText text={"Tổng HV:"} /></span>
+                      <span className="summary-value"><UiText>{totalLearners.toLocaleString()}</UiText></span>
                     </div>
                     <div className="summary-item">
-                      <span className="summary-label">Tổng GV:</span>
-                      <span className="summary-value">{totalMentors.toLocaleString()}</span>
+                      <span className="summary-label"><UiText text={"Tổng GV:"} /></span>
+                      <span className="summary-value"><UiText>{totalMentors.toLocaleString()}</UiText></span>
                     </div>
                     <div className="summary-item">
-                      <span className="summary-label">TB HV:</span>
-                      <span className="summary-value">{avgLearners.toFixed(1)}</span>
+                      <span className="summary-label"><UiText text={"TB HV:"} /></span>
+                      <span className="summary-value"><UiText>{avgLearners.toFixed(1)}</UiText></span>
                     </div>
                     {learnersGrowth && (
                       <div className={`summary-item ${learnersGrowth >= 0 ? 'positive' : 'negative'}`}>
-                        <span className="summary-label">Tăng trưởng HV:</span>
+                        <span className="summary-label"><UiText text={"Tăng trưởng HV:"} /></span>
                         <span className="summary-value">
-                          {learnersGrowth >= 0 ? '↑' : '↓'} {Math.abs(learnersGrowth)}%
+                          <UiText>{learnersGrowth >= 0 ? '↑' : '↓'}</UiText> <UiText>{Math.abs(learnersGrowth)}</UiText>%
                         </span>
                       </div>
                     )}
@@ -1407,7 +1167,7 @@ export default function Dashboard() {
                 <Line data={userGrowthChartData} options={chartOptions} />
               ) : (
                 <div className="empty-state">
-                  <p>Chưa có dữ liệu người dùng</p>
+                  <p><UiText text={"Chưa có dữ liệu người dùng"} /></p>
                 </div>
               )}
             </div>
@@ -1422,11 +1182,9 @@ export default function Dashboard() {
               <div>
                 <div>
                   <h3>
-                    <FaChartLine />
-                    Lưu lượng Truy cập
-                  </h3>
+                    <FaChartLine />{" "}<UiText text={"Lưu lượng Truy cập"} />{" "}</h3>
                   <div className="period-range">
-                    {getPeriodRangeFromOffset(timeframe.traffic, periodOffset.traffic)}
+                    <UiText>{getPeriodRangeFromOffset(timeframe.traffic, periodOffset.traffic)}</UiText>
                   </div>
                 </div>
                 <div className="timeframe-controls">
@@ -1438,28 +1196,26 @@ export default function Dashboard() {
                       setPeriodOffset({...periodOffset, traffic: 0}); // Reset về kỳ hiện tại
                     }}
                   >
-                    <option value="year">Theo năm</option>
-                    <option value="month">Theo tháng</option>
-                    <option value="week">Theo tuần</option>
+                    <UiOption value="year">{"Theo năm"}</UiOption>
+                    <UiOption value="month">{"Theo tháng"}</UiOption>
+                    <UiOption value="week">{"Theo tuần"}</UiOption>
                   </select>
                   <button
                     className="nav-button"
                     onClick={() => setPeriodOffset({...periodOffset, traffic: periodOffset.traffic - 1})}
-                    title="Kỳ trước"
+                    title={englishText("Kỳ trước")}
                   >
                     <FiChevronLeft />
                   </button>
                   <button
                     className={`nav-button reset ${periodOffset.traffic === 0 ? 'active' : ''}`}
                     onClick={() => setPeriodOffset({...periodOffset, traffic: 0})}
-                    title="Về hiện tại"
-                  >
-                    Hiện tại
-                  </button>
+                    title={englishText("Về hiện tại")}
+                  >{" "}<UiText text={"Hiện tại"} />{" "}</button>
                   <button
                     className="nav-button"
                     onClick={() => setPeriodOffset({...periodOffset, traffic: periodOffset.traffic + 1})}
-                    title="Kỳ sau"
+                    title={englishText("Kỳ sau")}
                   >
                     <FiChevronRight />
                   </button>
@@ -1469,22 +1225,22 @@ export default function Dashboard() {
                 {visitorsData.length > 0 && (
                   <>
                     <div className="summary-item">
-                      <span className="summary-label">Tổng truy cập:</span>
-                      <span className="summary-value">{totalVisitors.toLocaleString()}</span>
+                      <span className="summary-label"><UiText text={"Tổng truy cập:"} /></span>
+                      <span className="summary-value"><UiText>{totalVisitors.toLocaleString()}</UiText></span>
                     </div>
                     <div className="summary-item">
-                      <span className="summary-label">Tổng requests:</span>
-                      <span className="summary-value">{totalRequests.toLocaleString()}</span>
+                      <span className="summary-label"><UiText text={"Tổng requests:"} /></span>
+                      <span className="summary-value"><UiText>{totalRequests.toLocaleString()}</UiText></span>
                     </div>
                     <div className="summary-item">
-                      <span className="summary-label">TB truy cập:</span>
-                      <span className="summary-value">{avgVisitors.toFixed(0)}</span>
+                      <span className="summary-label"><UiText text={"TB truy cập:"} /></span>
+                      <span className="summary-value"><UiText>{avgVisitors.toFixed(0)}</UiText></span>
                     </div>
                     {visitorsGrowth && (
                       <div className={`summary-item ${visitorsGrowth >= 0 ? 'positive' : 'negative'}`}>
-                        <span className="summary-label">Tăng trưởng:</span>
+                        <span className="summary-label"><UiText text={"Tăng trưởng:"} /></span>
                         <span className="summary-value">
-                          {visitorsGrowth >= 0 ? '↑' : '↓'} {Math.abs(visitorsGrowth)}%
+                          <UiText>{visitorsGrowth >= 0 ? '↑' : '↓'}</UiText> <UiText>{Math.abs(visitorsGrowth)}</UiText>%
                         </span>
                       </div>
                     )}
@@ -1497,7 +1253,7 @@ export default function Dashboard() {
                 <Line data={trafficAreaChartData} options={chartOptions} />
               ) : (
                 <div className="empty-state">
-                  <p>Chưa có dữ liệu traffic</p>
+                  <p><UiText text={"Chưa có dữ liệu traffic"} /></p>
                 </div>
               )}
             </div>
@@ -1509,11 +1265,9 @@ export default function Dashboard() {
               <div>
                 <div>
                   <h3>
-                    <FaDollarSign />
-                    Doanh thu Chi tiết
-                  </h3>
+                    <FaDollarSign />{" "}<UiText text={"Giá trị đăng ký Chi tiết"} />{" "}</h3>
                   <div className="period-range">
-                    {getPeriodRangeFromOffset(timeframe.daily, periodOffset.daily)}
+                    <UiText>{getPeriodRangeFromOffset(timeframe.daily, periodOffset.daily)}</UiText>
                   </div>
                 </div>
                 <div className="timeframe-controls">
@@ -1525,28 +1279,26 @@ export default function Dashboard() {
                       setPeriodOffset({...periodOffset, daily: 0}); // Reset về kỳ hiện tại
                     }}
                   >
-                    <option value="week">Theo tuần</option>
-                    <option value="month">Theo tháng</option>
-                    <option value="year">Theo năm</option>
+                    <UiOption value="week">{"Theo tuần"}</UiOption>
+                    <UiOption value="month">{"Theo tháng"}</UiOption>
+                    <UiOption value="year">{"Theo năm"}</UiOption>
                   </select>
                   <button
                     className="nav-button"
                     onClick={() => setPeriodOffset({...periodOffset, daily: periodOffset.daily - 1})}
-                    title="Kỳ trước"
+                    title={englishText("Kỳ trước")}
                   >
                     <FiChevronLeft />
                   </button>
                   <button
                     className={`nav-button reset ${periodOffset.daily === 0 ? 'active' : ''}`}
                     onClick={() => setPeriodOffset({...periodOffset, daily: 0})}
-                    title="Về hiện tại"
-                  >
-                    Hiện tại
-                  </button>
+                    title={englishText("Về hiện tại")}
+                  >{" "}<UiText text={"Hiện tại"} />{" "}</button>
                   <button
                     className="nav-button"
                     onClick={() => setPeriodOffset({...periodOffset, daily: periodOffset.daily + 1})}
-                    title="Kỳ sau"
+                    title={englishText("Kỳ sau")}
                   >
                     <FiChevronRight />
                   </button>
@@ -1556,18 +1308,18 @@ export default function Dashboard() {
                 {dailyRevenueData.length > 0 && (
                   <>
                     <div className="summary-item">
-                      <span className="summary-label">Tổng:</span>
-                      <span className="summary-value">{formatCurrency(dailyTotalRevenue)}</span>
+                      <span className="summary-label"><UiText text={"Tổng:"} /></span>
+                      <span className="summary-value"><UiText>{formatCurrency(dailyTotalRevenue)}</UiText></span>
                     </div>
                     <div className="summary-item">
-                      <span className="summary-label">Trung bình:</span>
-                      <span className="summary-value">{formatCurrency(dailyAvgRevenue)}</span>
+                      <span className="summary-label"><UiText text={"Trung bình:"} /></span>
+                      <span className="summary-value"><UiText>{formatCurrency(dailyAvgRevenue)}</UiText></span>
                     </div>
                     {dailyRevenueGrowth && (
                       <div className={`summary-item ${dailyRevenueGrowth >= 0 ? 'positive' : 'negative'}`}>
-                        <span className="summary-label">Tăng trưởng:</span>
+                        <span className="summary-label"><UiText text={"Tăng trưởng:"} /></span>
                         <span className="summary-value">
-                          {dailyRevenueGrowth >= 0 ? '↑' : '↓'} {Math.abs(dailyRevenueGrowth)}%
+                          <UiText>{dailyRevenueGrowth >= 0 ? '↑' : '↓'}</UiText> <UiText>{Math.abs(dailyRevenueGrowth)}</UiText>%
                         </span>
                       </div>
                     )}
@@ -1580,7 +1332,7 @@ export default function Dashboard() {
                 <Line data={dailyRevenueChartData} options={dailyRevenueChartOptions} />
               ) : (
                 <div className="empty-state">
-                  <p>Chưa có dữ liệu doanh thu</p>
+                  <p><UiText text={"Chưa có dữ liệu giá trị đăng ký"} /></p>
                 </div>
               )}
             </div>
@@ -1593,20 +1345,18 @@ export default function Dashboard() {
       <div className="dashboard-card activity-card">
         <div className="card-header">
           <h3>
-            <FiActivity />
-            Tần suất hoạt động (7 ngày qua)
-          </h3>
+            <FiActivity />{" "}<UiText text={"Tần suất hoạt động (7 ngày qua)"} />{" "}</h3>
         </div>
         {activity.length === 0 ? (
           <div className="empty-state">
-            <p>Chưa có hoạt động nào</p>
+            <p><UiText text={"Chưa có hoạt động nào"} /></p>
           </div>
         ) : (
           <div className="activity-list">
             {activity.map((item, index) => (
               <div key={item.user_id || index} className="activity-item">
                 <div className="activity-rank">
-                  <span className="rank-number">{index + 1}</span>
+                  <span className="rank-number"><UiText>{index + 1}</UiText></span>
                 </div>
                 <div 
                   className="activity-avatar"
@@ -1616,25 +1366,24 @@ export default function Dashboard() {
                       : 'linear-gradient(135deg, #10b981, #059669)'
                   }}
                 >
-                  {item.actor_type === 'learner' ? 'HV' : 'GV'}
+                  <UiText>{item.actor_type === 'learner' ? 'HV' : 'GV'}</UiText>
                 </div>
                 <div className="activity-content">
-                  <div className="activity-name">{item.user_name || "N/A"}</div>
+                  <div className="activity-name"><UiText>{item.user_name || "N/A"}</UiText></div>
                   <div className="activity-desc">
-                    {item.actor_type === 'learner' 
-                      ? `Luyện phát âm: ${item.practice_count || 0} | Challenge: ${item.submission_count || 0}`
-                      : `Chấm bài: ${item.feedback_count || 0} | Lịch: ${item.schedule_count || 0}`
-                    }
+                    <UiText>{item.actor_type === 'learner'
+                      ? `Luyện phát âm: ${item.practice_count || 0} | Scenario: ${item.scenario_world_count || 0} | Challenge: ${item.submission_count || 0}`
+                      : `Chấm bài: ${item.feedback_count || 0} | Lịch: ${item.schedule_count || 0}`}</UiText>
                   </div>
                 </div>
                 <div className="activity-stats">
                   <div className="activity-count">
-                    <span className="count-value">{item.activity_count || 0}</span>
-                    <span className="count-label">hoạt động</span>
+                    <span className="count-value"><UiText>{item.activity_count || 0}</UiText></span>
+                    <span className="count-label"><UiText text={"hoạt động"} /></span>
                   </div>
                   <div className="activity-time">
                     <FiClock />
-                    {formatDate(item.last_activity)}
+                    <UiText>{formatDate(item.last_activity)}</UiText>
         </div>
                 </div>
               </div>

@@ -1,13 +1,17 @@
+import Notifications from "../common/Notifications";
+import Brand from "../common/Brand.jsx";
+import {TranslationToggle, UiText } from "../../i18n/UiLanguage.jsx";
 // src/components/learner/LearnerHeader.jsx
 import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { clearAuth, getAuth } from "../../utils/auth";
-import logo from "../../assets/images/logo.png";
+import { getAuth } from "../../utils/auth";
+import { useAuth } from "../../context/AuthContext";
 import userAvatar from "../../assets/icons/users.png";
 import "../../styles/theme.css"; 
 
 export default function LearnerHeader() {
   const navigate = useNavigate();
+  const { logout } = useAuth();
   const auth = getAuth();
   const userName = auth?.user?.name || "Learner";
 
@@ -15,8 +19,8 @@ export default function LearnerHeader() {
   const dropdownRef = useRef(null);
   const buttonRef = useRef(null);
 
-  function handleLogout() {
-    clearAuth();
+  async function handleLogout() {
+    await logout();
     navigate("/login", { replace: true });
   }
 
@@ -49,17 +53,18 @@ export default function LearnerHeader() {
     <header className="shell-header" role="banner">
       <div className="header-left">
         <div className="brand-block">
-          <img src={logo} alt="AESP logo" className="header-logo" />
+          <Brand />
         </div>
       </div>
 
       <div className="header-center">
-        <div className="welcome-text">
-          Welcome, <strong>{userName}!</strong>
+        <div className="welcome-text">{" "}<UiText text={"Welcome,"} />{" "}<strong>{userName}!</strong>
         </div>
       </div>
 
       <div className="header-right">
+        <TranslationToggle />
+        <Notifications />
         <div className="dropdown-wrapper">
           <button
             ref={buttonRef}
@@ -88,13 +93,9 @@ export default function LearnerHeader() {
                   navigate("/learn/profile");
                   setOpen(false);
                 }}
-              >
-                Thông tin cá nhân
-              </button>
+              >{" "}<UiText text={"Thông tin cá nhân"} />{" "}</button>
               <div className="divider-hr" />
-              <button className="dropdown-item danger" onClick={handleLogout}>
-                Đăng xuất
-              </button>
+              <button className="dropdown-item danger" onClick={handleLogout}>{" "}<UiText text={"Đăng xuất"} />{" "}</button>
             </div>
           )}
         </div>

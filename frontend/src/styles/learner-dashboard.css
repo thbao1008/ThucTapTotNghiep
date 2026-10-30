@@ -22,6 +22,13 @@
   font-size: 16px;
 }
 
+.dashboard-practice-link {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 16px;
+  text-decoration: none;
+}
+
 .dashboard-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -188,4 +195,3 @@
     font-size: 18px;
   }
 }
-

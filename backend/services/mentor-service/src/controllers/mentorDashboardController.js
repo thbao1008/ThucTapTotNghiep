@@ -1,5 +1,11 @@
 // Mentor Dashboard Controller
 import * as mentorDashboardService from "../services/mentorDashboardService.js";
+import {getMentorSupport} from '../services/mentorSupportService.js';
+
+export async function getSupport(req,res) {
+  try {return res.json(await getMentorSupport(req.params.mentorId,req.user.id));}
+  catch {return res.status(503).json({message:'Không thể tải dữ liệu hỗ trợ. Vui lòng thử lại.'});}
+}
 
 export async function getDashboardStats(req, res) {
   try {
@@ -69,71 +75,3 @@ export async function getSchedules(req, res) {
     });
   }
 }
-
-export async function initializeAILearning(req, res) {
-  try {
-    const { mentorId } = req.params;
-    
-    if (!mentorId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Mentor ID is required" 
-      });
-    }
-
-    const result = await mentorDashboardService.initializeAILearning(mentorId);
-    return res.json({ success: true, ...result });
-  } catch (err) {
-    console.error("Error initializeAILearning:", err);
-    return res.status(500).json({ 
-      success: false, 
-      message: err.message || "Server error" 
-    });
-  }
-}
-
-export async function getAIProgress(req, res) {
-  try {
-    const { mentorId } = req.params;
-    
-    if (!mentorId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Mentor ID is required" 
-      });
-    }
-
-    const progress = await mentorDashboardService.getAIProgress(mentorId);
-    return res.json({ success: true, progress });
-  } catch (err) {
-    console.error("Error getAIProgress:", err);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Server error" 
-    });
-  }
-}
-
-export async function getAIActivities(req, res) {
-  try {
-    const { mentorId } = req.params;
-    const limit = parseInt(req.query.limit) || 10;
-    
-    if (!mentorId) {
-      return res.status(400).json({ 
-        success: false, 
-        message: "Mentor ID is required" 
-      });
-    }
-
-    const activities = await mentorDashboardService.getAIActivities(mentorId, limit);
-    return res.json({ success: true, activities });
-  } catch (err) {
-    console.error("Error getAIActivities:", err);
-    return res.status(500).json({ 
-      success: false, 
-      message: "Server error" 
-    });
-  }
-}
-

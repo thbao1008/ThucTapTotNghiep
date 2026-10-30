@@ -1,0 +1,17 @@
+.scenario-session-archive { margin-top:24px; padding:20px; border:1px solid #d2dccd; border-radius:14px; background:#fffdf7; color:#173b39; }
+.scenario-archive-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; }
+.scenario-session-archive h2 { font-size:1.2rem; margin:0 0 8px; }
+.scenario-archive-heading p,.scenario-archive-note { font-size:.85rem; color:#63746a; line-height:1.5; margin:0 0 12px; }
+.scenario-session-archive button { padding:8px 12px; border:1px solid #b9c9b4; border-radius:8px; background:#f4f7ed; color:#234e43; font:inherit; font-size:.85rem; cursor:pointer; }
+.scenario-session-archive button:disabled { opacity:.55; cursor:default; }
+.scenario-session-archive button:focus-visible { outline:3px solid #dc9b56; outline-offset:2px; }
+.scenario-session-archive [role=alert] { padding:10px 12px; border-radius:8px; background:#fff0e8; color:#8b3e27; line-height:1.5; }
+.scenario-archive-list { list-style:none; padding:0; margin:12px 0; display:grid; gap:10px; }
+.scenario-archive-list li { display:flex; align-items:center; justify-content:space-between; gap:14px; padding:13px 15px; border:1px solid #dde3d5; border-radius:10px; background:#fafbf6; }
+.scenario-archive-list li[aria-current=true] { border-color:#8eaa84; background:#edf3e7; }
+.scenario-archive-list h3 { font-size:.98rem; margin:0 0 7px; overflow-wrap:anywhere; }
+.scenario-archive-list p { margin:4px 0; font-size:.83rem; color:#506858; }
+.scenario-archive-list small { font-size:.75rem; color:#6c7b70; }
+.scenario-archive-list button { flex-shrink:0; }
+.scenario-archive-pages { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:12px; font-size:.85rem; margin-top:14px; }
+@media(max-width:600px) { .scenario-archive-heading {flex-direction:column;} .scenario-archive-list li {align-items:flex-start;flex-direction:column;} .scenario-archive-pages {justify-content:space-between;} }

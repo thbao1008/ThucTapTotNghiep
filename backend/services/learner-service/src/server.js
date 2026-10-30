@@ -1,75 +1,58 @@
-// Load .env from backend/ai_models/.env
-import dotenv from "dotenv";
-import path from "path";
-import fs from "fs";
-import { fileURLToPath } from "url";
-import { dirname } from "path";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-const backendRoot = path.resolve(__dirname, "..", "..", "..");
-
-// Try multiple .env locations: backend/ai_models/.env, backend/.env.local, backend/.env.docker
-const envPaths = [
-  path.resolve(backendRoot, "ai_models", ".env"), // Primary location
-  path.resolve(backendRoot, ".env.local"),
-  path.resolve(backendRoot, ".env.docker"),
-  path.resolve(backendRoot, ".env")
-];
-
-let loaded = false;
-for (const envPath of envPaths) {
-  if (fs.existsSync(envPath)) {
-    dotenv.config({ path: envPath });
-    console.log(`✅ Loaded .env from: ${envPath}`);
-    loaded = true;
-    break;
-  }
-}
-
-if (!loaded) {
-  console.warn(`⚠️ .env file not found. Tried: ${envPaths.join(", ")}`);
-  dotenv.config(); // Try default locations
-}
-import express from "express";
-import cors from "cors";
-// Import db first to ensure connection is established
-import "./config/db.js";
-import { authGuard } from "./middleware/authGuard.js";
+import "../../shared/loadBackendEnv.js";
+import pool from "./config/db.js";
+import { createAuthGuard } from "./middleware/authGuard.js";
 import { packageGuard } from "./middleware/packageGuard.js";
 import learnerRoutes from "./routes/learnerRoutes.js";
 import "./queueHandlers.js"; // Register queue processors
+import { createLearnerApp } from "./app.js";
+import { startRecoveryScheduler, stopRecoveryScheduler } from "./utils/staleRoundRecovery.js";
+import { startSubmissionRecovery } from "./utils/submissionRecovery.js";
+import { enqueue, closeAll } from "./utils/queue.js";
+import { warmStoryWhisper, closeStoryWhisper } from './utils/storyWhisperWorker.js';
+import {ensureStoryRetentionSchema,startStoryRetentionCleanup} from '../../shared/practiceRetention.js';
+import {practiceRetention} from './utils/practiceRetentionRuntime.js';
 
-const app = express();
+await ensureStoryRetentionSchema(pool);
+const storyRetention=startStoryRetentionCleanup(pool,{onError:error=>console.warn('Story cleanup will retry',error.code||error.name)});
+const pronunciationRetention=practiceRetention.start();
+
+const authGuard = createAuthGuard({ pool });
+const app = createLearnerApp({ authGuard, learnerRoutes, packageGuard });
 const PORT = process.env.LEARNER_SERVICE_PORT || 4007;
 
-app.use(cors({ origin: "http://localhost:5173", credentials: true }));
-app.use(express.json());
+// Opt-in during G9.55 deferral: do not silently replay historical work/providers.
+const submissionRecovery = process.env.ENABLE_SUBMISSION_RECOVERY === "true"
+  ? startSubmissionRecovery({ pool, enqueueJob: enqueue }) : null;
 
-app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "learner-service" });
-});
+// Start recovery scheduler if enabled
+let recoveryScheduler = null;
+const RECOVERY_ENABLED = process.env.ENABLE_STALE_ROUND_RECOVERY !== "false"; // Enabled by default
 
-// Middleware to check package for non-dashboard routes
-const conditionalPackageGuard = (req, res, next) => {
-  // Skip package check for all learner routes (check moved to login)
-  return next();
-};
+if (RECOVERY_ENABLED) {
+  try {
+    recoveryScheduler = startRecoveryScheduler({
+      intervalMs: parseInt(process.env.RECOVERY_SCAN_INTERVAL_MS, 10) || undefined,
+      onScanComplete: (result) => {
+        if (result.found > 0) {
+          console.log(`✅ Recovery: enqueued ${result.enqueued}/${result.found} stale rounds`);
+        }
+      },
+      onError: (err) => {
+        console.error("❌ Recovery scheduler error:", err.message);
+      }
+    });
+    console.log("🔄 Stale round recovery scheduler started");
+  } catch (err) {
+    console.error("❌ Failed to start recovery scheduler:", err.message);
+  }
+}
 
-// Routes
-app.use("/learners", authGuard, conditionalPackageGuard, learnerRoutes);
-
-// Error handler
-app.use((err, req, res, next) => {
-  console.error("Learner Service error:", err);
-  res.status(err.status || 500).json({ 
-    message: err.message || "Server error" 
-  });
-});
-
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log(`📚 Learner Service running on port ${PORT}`);
   console.log(`✅ Health check: http://localhost:${PORT}/health`);
+  if (process.env.WARM_STORY_WHISPER !== 'false') {
+    try { warmStoryWhisper(); } catch { console.warn('Story transcriber will retry initialization on demand.'); }
+  }
 }).on("error", (err) => {
   if (err.code === "EADDRINUSE") {
     console.error(`❌ Port ${PORT} is already in use!`);
@@ -79,6 +62,43 @@ app.listen(PORT, () => {
   process.exit(1);
 });
 
+// Graceful shutdown
+let shuttingDown = false;
+function shutdown() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log("\n🛑 Shutting down Learner Service...");
+  submissionRecovery?.stop();
+  storyRetention.stop();
+  pronunciationRetention.stop();
+
+  if (recoveryScheduler) {
+    recoveryScheduler.stop();
+  }
+
+  server.close(async () => {
+    try {
+      await closeAll();
+      closeStoryWhisper();
+      await pool.end();
+      console.log("✅ Server and queue closed");
+      process.exit(0);
+    } catch (error) {
+      console.error("Shutdown failed", error.code || error.name || "UNKNOWN_ERROR");
+      process.exit(1);
+    }
+  });
+
+  // Force exit if graceful shutdown takes too long
+  setTimeout(() => {
+    console.error("❌ Forced shutdown after timeout");
+    process.exit(1);
+  }, 10000);
+}
+
+process.on("SIGTERM", shutdown);
+process.on("SIGINT", shutdown);
+
 process.on("uncaughtException", (err) => {
   console.error("❌ Uncaught Exception:", err);
   process.exit(1);
@@ -87,4 +107,3 @@ process.on("uncaughtException", (err) => {
 process.on("unhandledRejection", (reason, promise) => {
   console.error("❌ Unhandled Rejection at:", promise, "reason:", reason);
 });
-

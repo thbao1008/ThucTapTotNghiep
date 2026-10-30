@@ -1,12 +1,16 @@
+import { UiText } from '../../i18n/UiLanguage.jsx';
 // frontend/src/components/learner/LearnerDashboard.jsx
 import React, { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import { getAuth } from "../../utils/auth";
 import { useAuth } from "../../context/AuthContext";
 import api from "../../api";
 import ProgressAnalytics from "./ProgressAnalytics";
-import Calendar from "../common/Calendar";
+import WeeklyLearningGoal from './WeeklyLearningGoal';
+import OnlineClasses from '../common/OnlineClasses';
 import { FiCheckCircle, FiAlertCircle, FiTarget } from "react-icons/fi";
 import "../../styles/learner-dashboard.css";
+import { presentProgressRecommendations } from "../../utils/progressAnalytics.js";
 
 export default function LearnerDashboard() {
   const auth = getAuth();
@@ -16,51 +20,70 @@ export default function LearnerDashboard() {
   const [loading, setLoading] = useState(true);
   const [analytics, setAnalytics] = useState(null);
   const [loadingAnalytics, setLoadingAnalytics] = useState(true);
+  const [analyticsError, setAnalyticsError] = useState("");
+  const [goalSaveVersion, setGoalSaveVersion] = useState(0);
+  const recommendations = presentProgressRecommendations(analytics?.recommendations);
 
   useEffect(() => {
+    const controller = new AbortController();
+    const { signal } = controller;
+    setLearnerId(null);
+    setAnalytics(null);
+    setAnalyticsError("");
     if (!userId) {
       setLoading(false);
-      return;
+      return () => controller.abort();
     }
 
     async function load() {
       try {
-        const lres = await api.get(`/learners/by-user/${userId}`);
+        setLoading(true);
+        const lres = await api.get(`/learners/by-user/${userId}`, { signal });
+        if (signal.aborted) return;
         const learnerObj = lres.data?.learner ?? lres.data ?? null;
         const lid = learnerObj?.id ?? learnerObj?.learner_id ?? null;
         setLearnerId(lid);
       } catch (err) {
-        console.error("Error loading learner:", err);
+        if (!signal.aborted) setLearnerId(null);
       } finally {
-        setLoading(false);
+        if (!signal.aborted) setLoading(false);
       }
     }
 
     load();
+    return () => controller.abort();
   }, [userId]);
 
   useEffect(() => {
-    if (!learnerId) return;
+    const controller = new AbortController();
+    const { signal } = controller;
+    setAnalytics(null);
+    setAnalyticsError("");
+    if (!learnerId) {
+      setLoadingAnalytics(false);
+      return () => controller.abort();
+    }
 
     async function loadAnalytics() {
       try {
         setLoadingAnalytics(true);
-        const res = await api.get(`/learners/${learnerId}/progress-analytics`);
-        setAnalytics(res.data);
+        const res = await api.get(`/learners/${learnerId}/progress-analytics`, { signal });
+        if (!signal.aborted) setAnalytics(res.data);
       } catch (err) {
-        console.error("Error loading analytics:", err);
+        if (!signal.aborted) setAnalyticsError("Không thể tải tiến độ lúc này. Vui lòng tải lại trang để thử lại.");
       } finally {
-        setLoadingAnalytics(false);
+        if (!signal.aborted) setLoadingAnalytics(false);
       }
     }
 
     loadAnalytics();
-  }, [learnerId]);
+    return () => controller.abort();
+  }, [learnerId, goalSaveVersion]);
 
   if (loading) {
     return (
       <div className="learner-dashboard">
-        <div className="loading-state">Đang tải...</div>
+        <div className="loading-state"><UiText text={"Đang tải..."} /></div>
       </div>
     );
   }
@@ -68,7 +91,7 @@ export default function LearnerDashboard() {
   if (!learnerId) {
     return (
       <div className="learner-dashboard">
-        <div className="error-state">Không tìm thấy thông tin học viên</div>
+        <div className="error-state"><UiText text={"Không tìm thấy thông tin học viên"} /></div>
       </div>
     );
   }
@@ -76,25 +99,30 @@ export default function LearnerDashboard() {
   return (
     <div className="learner-dashboard">
       <div className="dashboard-header">
-        <h1>Dashboard</h1>
-        <p>Xem tiến độ học tập và lịch học của bạn</p>
+        <h1><UiText text={"Dashboard"} /></h1>
+        <p><UiText text={"Xem tiến độ học tập và lịch học của bạn, hoặc bắt đầu luyện tập cùng AI."} /></p>
+        <Link className="btn btn-primary dashboard-practice-link" to="/learn/practice">{" "}<UiText text={"Bắt đầu luyện tập cùng AI"} />{" "}</Link>
       </div>
+
+      <WeeklyLearningGoal key={`${userId}:${learnerId}`} learnerId={learnerId} onGoalSaved={() => setGoalSaveVersion(version => version + 1)} />
 
       <div className="dashboard-grid">
         {/* Left Column: Progress Analytics */}
         <div className="dashboard-left-column">
           <div className="dashboard-section analytics-section">
             <div className="section-header">
-              <h2>Phân tích tiến độ</h2>
-              <p className="section-subtitle">Xem chi tiết tiến độ học tập và số liệu thống kê</p>
+              <h2><UiText text={"Phân tích tiến độ"} /></h2>
+              <p className="section-subtitle"><UiText text={"Xem chi tiết tiến độ học tập và số liệu thống kê"} /></p>
             </div>
             <div className="analytics-content">
               {loadingAnalytics ? (
-                <div className="loading-state">Đang tải dữ liệu phân tích...</div>
+                <div className="loading-state"><UiText text={"Đang tải dữ liệu phân tích..."} /></div>
+              ) : analyticsError ? (
+                <div className="error-state" role="alert"><UiText>{analyticsError}</UiText></div>
               ) : analytics ? (
                 <ProgressAnalytics analytics={analytics} hideRecommendations={true} />
               ) : (
-                <div className="empty-state">Chưa có dữ liệu phân tích. Hãy bắt đầu luyện tập!</div>
+                <div className="empty-state"><UiText text={"Chưa có dữ liệu phân tích. Hãy bắt đầu luyện tập!"} /></div>
               )}
             </div>
           </div>
@@ -104,70 +132,67 @@ export default function LearnerDashboard() {
         <div className="dashboard-right-column">
           {/* Calendar */}
           <div className="dashboard-section calendar-section">
-            <Calendar learnerId={learnerId} />
+            <OnlineClasses compact />
           </div>
 
           {/* AI Recommendations */}
-          {analytics && analytics.recommendations && (
+          {analytics && (
             <div className="dashboard-section recommendations-section">
               <div className="section-header">
-                <h2>Đánh giá & Gợi Ý từ AI</h2>
-                <p className="section-subtitle">Nhận gợi ý cải thiện từ AI dựa trên tiến độ học tập</p>
+                <h2><UiText>{recommendations.heading}</UiText></h2>
+                <p className="section-subtitle"><UiText text={"Gợi ý hỗ trợ tự học cùng AI; bạn có thể liên hệ Mentor khi cần."} /></p>
               </div>
               <div className="recommendations-content">
-                {analytics.recommendations.overall_assessment && (
+                {recommendations.notice && <p className="help-text" role="status"><UiText>{recommendations.notice}</UiText></p>}
+                {recommendations.recommendation_source === 'ai_generated' && recommendations.overall_assessment && (
                   <div className="assessment-box">
-                    <p>{analytics.recommendations.overall_assessment}</p>
+                    <p><UiText>{recommendations.overall_assessment}</UiText></p>
                   </div>
                 )}
 
-                {Array.isArray(analytics.recommendations.strengths) && analytics.recommendations.strengths.length > 0 && (
+                {recommendations.strengths.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
-                      <FiCheckCircle className="icon-success" /> Điểm Mạnh
-                    </h4>
+                      <FiCheckCircle className="icon-success" />{" "}<UiText text={"Điểm Mạnh"} />{" "}</h4>
                     <ul className="recommendations-list">
-                      {analytics.recommendations.strengths.map((strength, idx) => (
-                        <li key={idx}>{strength}</li>
+                      {recommendations.strengths.map((strength, idx) => (
+                        <li key={idx}><UiText>{strength}</UiText></li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {Array.isArray(analytics.recommendations.improvements_needed) && analytics.recommendations.improvements_needed.length > 0 && (
+                {recommendations.improvements_needed.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
-                      <FiAlertCircle className="icon-warning" /> Cần Cải Thiện
-                    </h4>
+                      <FiAlertCircle className="icon-warning" />{" "}<UiText text={"Cần Cải Thiện"} />{" "}</h4>
                     <ul className="recommendations-list">
-                      {analytics.recommendations.improvements_needed.map((improvement, idx) => (
-                        <li key={idx}>{improvement}</li>
+                      {recommendations.improvements_needed.map((improvement, idx) => (
+                        <li key={idx}><UiText>{improvement}</UiText></li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {Array.isArray(analytics.recommendations.recommendations) && analytics.recommendations.recommendations.length > 0 && (
+                {recommendations.recommendations.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
-                      <FiTarget className="icon-primary" /> Gợi Ý Cải Thiện
-                    </h4>
+                      <FiTarget className="icon-primary" />{" "}<UiText text={"Gợi Ý Cải Thiện"} />{" "}</h4>
                     <ul className="recommendations-list">
-                      {analytics.recommendations.recommendations.map((rec, idx) => (
-                        <li key={idx}>{rec}</li>
+                      {recommendations.recommendations.map((rec, idx) => (
+                        <li key={idx}><UiText>{rec}</UiText></li>
                       ))}
                     </ul>
                   </div>
                 )}
 
-                {Array.isArray(analytics.recommendations.priority_areas) && analytics.recommendations.priority_areas.length > 0 && (
+                {recommendations.priority_areas.length > 0 && (
                   <div className="recommendations-group">
                     <h4>
-                      <FiTarget className="icon-primary" /> Lĩnh Vực Ưu Tiên
-                    </h4>
+                      <FiTarget className="icon-primary" />{" "}<UiText text={"Lĩnh Vực Ưu Tiên"} />{" "}</h4>
                     <ul className="recommendations-list">
-                      {analytics.recommendations.priority_areas.map((area, idx) => (
-                        <li key={idx}>{area}</li>
+                      {recommendations.priority_areas.map((area, idx) => (
+                        <li key={idx}><UiText>{area}</UiText></li>
                       ))}
                     </ul>
                   </div>

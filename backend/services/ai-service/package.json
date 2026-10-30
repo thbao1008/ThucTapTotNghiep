@@ -1,7 +1,7 @@
 {
   "name": "ai-service",
   "version": "1.0.0",
-  "description": "AI Service for AESP - OpenRouter, Assistant AI, Trained AI",
+  "description": "AI Service for AESP - Groq chat and transcript assessment",
   "type": "module",
   "main": "src/server.js",
   "scripts": {

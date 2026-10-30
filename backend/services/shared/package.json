@@ -1,0 +1,15 @@
+{
+  "name": "@aesp/assessment-contract",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js"
+  },
+  "files": [
+    "assessmentContract.js",
+    "index.js",
+    "transcriptAssessmentRead.js"
+  ]
+}

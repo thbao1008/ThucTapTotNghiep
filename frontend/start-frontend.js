@@ -1,142 +1,54 @@
 #!/usr/bin/env node
-/**
- * Script to start frontend with cleanup
- * Kills port 5173, verifies files, then starts Vite
- */
+import { existsSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { spawn, execSync } from "child_process";
-import { existsSync } from "fs";
-import { join, dirname } from "path";
-import { fileURLToPath } from "url";
+const frontendDir = dirname(fileURLToPath(import.meta.url));
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-// Get frontend directory (current directory)
-const frontendDir = __dirname;
+export function createFrontendPlan({ port = 5173 } = {}) {
+  return {
+    name: 'Frontend',
+    port,
+    entry: join(frontendDir, 'node_modules', 'vite', 'bin', 'vite.js'),
+    cwd: frontendDir,
+    args: ['--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    healthPath: '/',
+  };
+}
 
-// Ensure we're in the frontend directory
-process.chdir(frontendDir);
+export function checkFrontendFiles() {
+  const required = ['index.html', 'src/main.jsx', 'vite.config.js', 'node_modules/vite/bin/vite.js'];
+  const missing = required.filter(file => !existsSync(join(frontendDir, file)));
+  if (missing.length) {
+    throw new Error(`Frontend files are missing: ${missing.join(', ')}. Install frontend dependencies before starting.`);
+  }
+}
 
-const isWindows = process.platform === "win32";
+export async function startFrontend({ env = process.env, port = 5173, startProcesses, signal } = {}) {
+  checkFrontendFiles();
+  const start = startProcesses ?? (await import('../backend/services/shared/localProcessSupervisor.js')).startLocalProcesses;
+  return start({ plans: [createFrontendPlan({ port })], env, signal });
+}
 
-console.log("🚀 Starting Frontend...\n");
-
-// Step 1: Check if port 5173 is in use, only kill if needed (first time only)
-let needsKill = false;
-if (isWindows) {
+async function main() {
+  let supervisor;
+  const controller = new AbortController();
+  const stop = () => { controller.abort(); void supervisor?.stop(); };
+  process.on('SIGINT', stop);
+  process.on('SIGTERM', stop);
   try {
-    const checkCommand = `$conns = Get-NetTCPConnection -LocalPort 5173 -State Listen -ErrorAction SilentlyContinue; if ($conns) { Write-Output "IN_USE" } else { Write-Output "FREE" }`;
-    const result = execSync(`powershell -Command "${checkCommand}"`, { encoding: "utf-8", timeout: 3000 });
-    if (result.trim() === "IN_USE") {
-      needsKill = true;
-      console.log("Step 1: Killing processes on port 5173...");
-      const killCommand = `
-        $conns = Get-NetTCPConnection -LocalPort 5173 -ErrorAction SilentlyContinue;
-        if ($conns) {
-          $pids = $conns | Select-Object -ExpandProperty OwningProcess -Unique;
-          foreach ($pid in $pids) {
-            if ($pid -and $pid -ne $PID) {
-              try {
-                taskkill /F /T /PID $pid 2>&1 | Out-Null;
-              } catch {}
-            }
-          }
-        }
-      `;
-      execSync(`powershell -Command "${killCommand}"`, { stdio: "ignore", timeout: 5000 });
-      console.log("✅ Killed processes on port 5173\n");
-      // Wait a bit for port to be released
-      execSync(`powershell -Command "Start-Sleep -Seconds 2"`, { stdio: "ignore", timeout: 3000 });
-    } else {
-      console.log("✅ Port 5173 is free, skipping kill step\n");
-    }
-  } catch (e) {
-    // Ignore errors, assume port is free
+    supervisor = await startFrontend({ signal: controller.signal });
+    const result = await supervisor.done;
+    if (typeof result === 'number') process.exitCode = result;
+  } catch (error) {
+    console.error(`Frontend could not start: ${error.message}`);
+    process.exitCode = error.code === 'LOCAL_START_CANCELLED' ? 0 : 1;
+  } finally {
+    process.off('SIGINT', stop);
+    process.off('SIGTERM', stop);
   }
 }
 
-// Step 2: Verify frontend files
-console.log("Step 2: Verifying frontend files...");
-const requiredFiles = [
-  "index.html",
-  "src/main.jsx",
-  "vite.config.js"
-];
-
-let hasErrors = false;
-for (const file of requiredFiles) {
-  const filePath = join(frontendDir, file);
-  if (!existsSync(filePath)) {
-    console.error(`❌ Missing: ${file}`);
-    hasErrors = true;
-  }
+if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+  await main();
 }
-
-if (!existsSync(join(frontendDir, "node_modules"))) {
-  console.log("⚠️  node_modules not found. Installing dependencies...");
-  try {
-    execSync("npm install", { cwd: frontendDir, stdio: "inherit" });
-  } catch (e) {
-    console.error("❌ Failed to install dependencies");
-    process.exit(1);
-  }
-}
-
-if (hasErrors) {
-  console.error("\n❌ Missing required files. Please check frontend directory.");
-  process.exit(1);
-}
-
-console.log("✅ All required files found\n");
-
-// Step 3: Start Vite
-console.log("Step 3: Starting Vite dev server...\n");
-console.log("📡 Frontend will be available at: http://localhost:5173\n");
-
-// In Docker, use dev:docker script (no --open flag)
-const isDocker = process.env.DOCKER === "true";
-const viteCommand = isDocker ? ["run", "dev:docker"] : ["run", "dev"];
-
-const viteProcess = spawn("npm", viteCommand, {
-  cwd: frontendDir,
-  stdio: "inherit",
-  shell: true,
-  env: {
-    ...process.env,
-    // Ensure DOCKER flag is passed to Vite
-    DOCKER: process.env.DOCKER || "false"
-  }
-});
-
-viteProcess.on("error", (err) => {
-  console.error("❌ Error starting Vite:", err);
-  // Don't exit - let user see the error and fix it
-  console.error("⚠️  Frontend will continue running. Please check the error above.");
-});
-
-viteProcess.on("exit", (code) => {
-  // Only exit if it's a clean shutdown (code 0) or Ctrl+C
-  // Don't exit on errors - let Vite handle retries
-  if (code === 0 || code === null) {
-    // Clean exit
-    return;
-  }
-  // For other exit codes, log but don't exit
-  // Vite might restart automatically or user can restart manually
-  console.error(`⚠️  Vite exited with code ${code}`);
-  console.error("⚠️  Frontend may need to be restarted. Check backend services are running.");
-  // Don't exit - let the process continue
-});
-
-// Handle Ctrl+C
-process.on("SIGINT", () => {
-  console.log("\n🛑 Stopping frontend...");
-  viteProcess.kill("SIGINT");
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  viteProcess.kill("SIGTERM");
-  process.exit(0);
-});
-

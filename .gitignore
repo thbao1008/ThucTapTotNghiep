@@ -2,6 +2,10 @@
 build/
 dist/
 .env
+.env.local
+.env.docker
+.env.*
+!.env.example
 .DS_Store
 .venv/
 __pycache__/
@@ -9,3 +13,19 @@ __pycache__/
 *.pyo
 *.pyd
 *.log
+
+# WhisperX virtual environment
+backend/.venv-whisperx/
+
+# FFmpeg portable binaries
+ffmpeg-*/
+
+# Private local backups and initial-account input
+.local-backups/
+backend/seed/admins.json
+backend/backups/
+artifacts/
+
+# Private user media and generated speech results
+backend/uploads/
+backend/outputs/
